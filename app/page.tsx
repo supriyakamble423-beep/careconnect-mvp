@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-// DEEPAK BHAI: Yahan humne signInWithPopup ko hatakar signInWithRedirect kar diya hai!
-import { signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
+import { signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, setDoc, onSnapshot, collection, query } from "firebase/firestore";
 import Link from "next/link";
 import { auth, db, googleProvider } from "../lib/firebase";
@@ -12,14 +11,18 @@ export default function Home() {
   const [statusInput, setStatusInput] = useState("");
   const [myStatus, setMyStatus] = useState("Loading...");
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
-    // Ye code ensure karega ki mobile redirect ke baad login data catch ho jaye
+    // Redirect ke baad wapas aane par user pakadne ke liye
     getRedirectResult(auth).then((result) => {
       if(result && result.user) {
          setUser(result.user);
       }
-    }).catch((error) => console.error("Redirect Error:", error));
+    }).catch((error) => {
+      console.error("Redirect Error:", error);
+      alert("Redirect Error: " + error.message);
+    });
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -49,13 +52,26 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
 
-  // DEEPAK BHAI: Ab ye mobile par popup nahi kholega, seedha screen change karega
+  // DUAL ENGINE LOGIN FIX
   const handleLogin = async () => {
+    setIsLoggingIn(true);
     try { 
-      await signInWithRedirect(auth, googleProvider); 
+      // Pehle Popup try karo
+      await signInWithPopup(auth, googleProvider); 
     } 
-    catch (error) { 
-      console.error("Login Error:", error); 
+    catch (error: any) { 
+      // Agar mobile ne popup block kar diya, toh seedha Redirect chalao
+      if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+        } catch (redirectError: any) {
+          alert("Login Error: " + redirectError.message);
+          setIsLoggingIn(false);
+        }
+      } else {
+        alert("Login Failed: " + error.message); 
+        setIsLoggingIn(false);
+      }
     }
   };
 
@@ -77,9 +93,15 @@ export default function Home() {
           </div>
           <h1 className="text-3xl font-extrabold text-slate-800 mb-2">CareConnect MVP</h1>
           <p className="text-slate-500 mb-8 font-medium leading-relaxed">Stay connected with your family.<br/>Track routines & safety instantly.</p>
-          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-all flex justify-center items-center gap-3 text-lg">
-            Continue with Google
+          
+          <button 
+            onClick={handleLogin} 
+            disabled={isLoggingIn}
+            className={`w-full text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-all flex justify-center items-center gap-3 text-lg ${isLoggingIn ? 'bg-slate-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'}`}
+          >
+            {isLoggingIn ? "Logging in..." : "Continue with Google"}
           </button>
+          
           <p className="text-xs text-slate-400 mt-6 uppercase tracking-widest font-bold">Family Routine Guardian</p>
         </div>
       </div>
@@ -89,7 +111,6 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
       <div className="max-w-lg mx-auto bg-white min-h-screen shadow-2xl">
-        {/* Modern Header */}
         <div className="bg-blue-600 text-white p-6 flex justify-between items-center shadow-md rounded-b-3xl mb-4">
           <div className="flex items-center gap-4">
             <img src={user.photoURL} alt="Me" className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
@@ -98,12 +119,10 @@ export default function Home() {
               <p className="text-blue-200 text-xs font-medium tracking-wide">FAMILY GUARDIAN</p>
             </div>
           </div>
-          <button onClick={() => signOut(auth)} className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-4 py-2 rounded-full transition-all backdrop-blur-sm">LOGOUT</button>
+          <button onClick={() => {signOut(auth); setIsLoggingIn(false);}} className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-4 py-2 rounded-full transition-all backdrop-blur-sm">LOGOUT</button>
         </div>
 
         <div className="p-5 space-y-6">
-          
-          {/* Daily AI Summary Prototype Area (As per Plan) */}
           <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl shadow-sm flex items-start gap-3">
              <div className="text-2xl mt-1">✨</div>
              <div>
