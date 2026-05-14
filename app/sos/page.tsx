@@ -31,13 +31,11 @@ export default function SOSPage() {
     const userRef = doc(db, "users", user.uid);
     const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     
-    // Status ko red alert me badal dega
     await setDoc(userRef, { 
       status: "🚨 EMERGENCY: I NEED HELP!", 
       lastUpdated: timeNow 
     }, { merge: true });
 
-    // 2 second baad wapas home page bhej dega
     setTimeout(() => {
       router.push("/");
     }, 2000);

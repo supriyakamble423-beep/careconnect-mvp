@@ -1,98 +1,76 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { initializeApp, getApps } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
-// 👇 NAYA: Database (Firestore) import kar rahe hain
-import { getFirestore, doc, setDoc, onSnapshot } from "firebase/firestore";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAFaYl9fJtmBDntPo_qxapyQ9VC-J8B0Rs",
-  authDomain: "careconnect-fresh.firebaseapp.com",
-  projectId: "careconnect-fresh",
-  storageBucket: "careconnect-fresh.firebasestorage.app",
-  messagingSenderId: "485527200202",
-  appId: "1:485527200202:web:3cb125aebbc38c4508af33"
-};
-
-const appName = "CareConnectAbsoluteFresh";
-const app = getApps().find(a => a.name === appName) || initializeApp(firebaseConfig, appName);
-const auth = getAuth(app);
-const db = getFirestore(app); // Database Engine Start!
+// Yahan humne popup hata kar Redirect aur getRedirectResult add kiya hai
+import { signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, setDoc, onSnapshot, collection, query } from "firebase/firestore";
+import Link from "next/link";
+import { auth, db, googleProvider } from "../lib/firebase";
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [statusInput, setStatusInput] = useState("");
-  const [currentStatus, setCurrentStatus] = useState("Loading...");
+  const [myStatus, setMyStatus] = useState("Loading...");
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    // Mobile redirect error handle karne ke liye
+    getRedirectResult(auth).catch((error) => console.error("Redirect Error:", error));
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      
-      // Agar user login hai, toh uska data Database me save aur read karo
       if (currentUser) {
         const userRef = doc(db, "users", currentUser.uid);
         
-        // 1. Basic Info Save Karo
         await setDoc(userRef, {
           name: currentUser.displayName,
           email: currentUser.email,
           photoURL: currentUser.photoURL,
         }, { merge: true });
 
-        // 2. Uska live Status Read karo
-        onSnapshot(userRef, (docSnap) => {
-          if (docSnap.exists() && docSnap.data().status) {
-            setCurrentStatus(docSnap.data().status);
-          } else {
-            setCurrentStatus("Online (No status set)");
-          }
+        const q = query(collection(db, "users"));
+        const unsubscribeDB = onSnapshot(q, (snapshot) => {
+          let membersData: any[] = [];
+          snapshot.forEach((doc) => {
+            membersData.push({ id: doc.id, ...doc.data() });
+            if (doc.id === currentUser.uid && doc.data().status) {
+              setMyStatus(doc.data().status);
+            }
+          });
+          setFamilyMembers(membersData);
         });
+        return () => unsubscribeDB();
       }
     });
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, []);
 
-  const handleGoogleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login Error:", error);
+  // MOBILE FIX: Ab popup nahi khulega, seedha page redirect hoga!
+  const handleLogin = async () => {
+    try { 
+      await signInWithRedirect(auth, googleProvider); 
+    } 
+    catch (error) { 
+      console.error("Login Error:", error); 
     }
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-  };
-
-  // NAYA: Status update karne ka function
-  const updateMyStatus = async () => {
-    if (!statusInput || !user) return;
+  const updateStatus = async () => {
+    if (!statusInput.trim() || !user) return;
     const userRef = doc(db, "users", user.uid);
-    await setDoc(userRef, {
-      status: statusInput,
-      lastUpdated: new Date().toLocaleTimeString()
-    }, { merge: true });
-    setStatusInput(""); // Input box khali kar do
+    const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    
+    await setDoc(userRef, { status: statusInput, lastUpdated: timeNow }, { merge: true });
+    setStatusInput(""); 
   };
 
-  // --- UI: AGAR LOGIN NAHI HAI ---
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-lg p-8 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="bg-blue-100 text-blue-600 p-3 rounded-2xl">
-              <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">CareConnect MVP</h1>
-          <p className="text-gray-500 mb-8">Stay connected with your loved ones.</p>
-          <button onClick={handleGoogleLogin} className="w-full bg-white border border-gray-300 text-gray-700 font-semibold py-3 px-4 rounded-xl shadow-sm hover:bg-gray-50 flex items-center justify-center gap-3 transition-all">
-            <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" width="20" height="20" />
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
+          <h1 className="text-3xl font-extrabold text-slate-800 mb-2">CareConnect</h1>
+          <p className="text-slate-500 mb-8 font-medium">Keep your family updated, instantly.</p>
+          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all">
             Login with Google
           </button>
         </div>
@@ -100,51 +78,58 @@ export default function Home() {
     );
   }
 
-  // --- UI: AGAR LOGIN HAI (DASHBOARD) ---
   return (
-    <div className="min-h-screen bg-gray-50 p-4 font-sans text-gray-800">
-      <div className="max-w-md mx-auto bg-white min-h-screen shadow-md rounded-xl overflow-hidden border border-gray-100 pb-10">
-        
-        {/* Header Section */}
-        <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-blue-600 text-white">
-          <h1 className="text-xl font-bold">CareConnect</h1>
-          <button onClick={handleLogout} className="text-sm font-medium bg-red-500 hover:bg-red-600 px-3 py-1 rounded-lg transition-all">Logout</button>
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-10">
+      <div className="max-w-lg mx-auto bg-white min-h-screen shadow-lg">
+        <div className="bg-blue-600 text-white p-5 flex justify-between items-center shadow-md">
+          <div className="flex items-center gap-3">
+            <img src={user.photoURL} alt="Me" className="w-10 h-10 rounded-full border-2 border-white" />
+            <h1 className="text-xl font-bold">CareConnect</h1>
+          </div>
+          <button onClick={() => signOut(auth)} className="bg-blue-800 hover:bg-blue-900 text-xs font-bold px-3 py-2 rounded-lg transition-all">LOGOUT</button>
         </div>
 
-        <div className="p-5">
-          {/* Profile Section */}
-          <div className="flex items-center gap-4 mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-            <img src={user.photoURL} alt="Profile" className="w-16 h-16 rounded-full border-2 border-blue-500" />
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">{user.displayName}</h2>
-              <p className="text-sm text-gray-500">{user.email}</p>
+        <div className="p-5 space-y-6">
+          <Link href="/sos">
+            <div className="bg-red-500 hover:bg-red-600 text-white text-center py-4 rounded-2xl shadow-md font-bold text-lg cursor-pointer transition-all flex justify-center items-center gap-2">
+              <span>🚨</span> EMERGENCY SOS
+            </div>
+          </Link>
+
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 shadow-sm">
+            <p className="text-xs font-bold text-blue-800 uppercase mb-1">My Current Status</p>
+            <p className="text-xl font-bold text-blue-900 mb-4">{myStatus}</p>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="Where are you?" 
+                value={statusInput}
+                onChange={(e) => setStatusInput(e.target.value)}
+                className="flex-1 border border-blue-200 rounded-xl px-4 py-2 focus:outline-none"
+              />
+              <button onClick={updateStatus} className="bg-blue-600 text-white font-bold px-5 py-2 rounded-xl">Update</button>
             </div>
           </div>
 
-          {/* Current Live Status Card */}
-          <div className="bg-green-50 border border-green-200 p-5 rounded-2xl mb-6 shadow-sm">
-            <p className="text-xs font-bold text-green-800 uppercase tracking-wider mb-1">My Current Status</p>
-            <p className="text-xl font-medium text-green-900">"{currentStatus}"</p>
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-800 mb-4">👨‍👩‍👧‍👦 Family Feed</h2>
+            <div className="space-y-3">
+              {familyMembers.map((member) => (
+                <div key={member.id} className={`border rounded-2xl p-4 flex items-start gap-4 shadow-sm ${member.status?.includes("EMERGENCY") ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+                  <img src={member.photoURL} alt={member.name} className="w-12 h-12 rounded-full" />
+                  <div className="flex-1">
+                    <div className="flex justify-between mb-1">
+                      <h3 className="font-bold">{member.name} {member.id === user.uid && "(You)"}</h3>
+                      <span className="text-xs font-bold text-slate-400">{member.lastUpdated}</span>
+                    </div>
+                    <p className={`font-medium p-2 rounded-lg border inline-block w-full ${member.status?.includes("EMERGENCY") ? "bg-red-100 border-red-200 text-red-800" : "bg-slate-50 border-slate-100"}`}>
+                      {member.status || "No status yet"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-
-          {/* Update Status Form */}
-          <div className="bg-white border border-gray-200 p-5 rounded-2xl shadow-sm">
-            <h3 className="font-bold text-gray-800 mb-3">Update Where You Are</h3>
-            <input 
-              type="text" 
-              placeholder="e.g., Safe at home, At office..." 
-              value={statusInput}
-              onChange={(e) => setStatusInput(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button 
-              onClick={updateMyStatus}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md"
-            >
-              Post Status
-            </button>
-          </div>
-          
         </div>
       </div>
     </div>
