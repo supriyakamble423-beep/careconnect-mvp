@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import "./globals.css";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "CareConnect",
   description: "Stay connected with your loved ones",
+  manifest: "/manifest.json", // PWA Install ka jadu yahan se chalega
+  themeColor: "#2563eb",      // Mobile me app kholne par top bar blue dikhega
 };
 
 export default function RootLayout({
