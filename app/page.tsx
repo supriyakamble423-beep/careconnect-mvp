@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-// Yahan humne popup hata kar Redirect aur getRedirectResult add kiya hai
+// DEEPAK BHAI: Yahan humne signInWithPopup ko hatakar signInWithRedirect kar diya hai!
 import { signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, setDoc, onSnapshot, collection, query } from "firebase/firestore";
 import Link from "next/link";
@@ -14,12 +14,16 @@ export default function Home() {
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
   useEffect(() => {
-    // Mobile redirect error handle karne ke liye
-    getRedirectResult(auth).catch((error) => console.error("Redirect Error:", error));
+    // Ye code ensure karega ki mobile redirect ke baad login data catch ho jaye
+    getRedirectResult(auth).then((result) => {
+      if(result && result.user) {
+         setUser(result.user);
+      }
+    }).catch((error) => console.error("Redirect Error:", error));
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
       if (currentUser) {
+        setUser(currentUser);
         const userRef = doc(db, "users", currentUser.uid);
         
         await setDoc(userRef, {
@@ -45,7 +49,7 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
 
-  // MOBILE FIX: Ab popup nahi khulega, seedha page redirect hoga!
+  // DEEPAK BHAI: Ab ye mobile par popup nahi kholega, seedha screen change karega
   const handleLogin = async () => {
     try { 
       await signInWithRedirect(auth, googleProvider); 
@@ -67,69 +71,94 @@ export default function Home() {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
-          <h1 className="text-3xl font-extrabold text-slate-800 mb-2">CareConnect</h1>
-          <p className="text-slate-500 mb-8 font-medium">Keep your family updated, instantly.</p>
-          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all">
-            Login with Google
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border-t-4 border-blue-500">
+          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <span className="text-4xl">🏠</span>
+          </div>
+          <h1 className="text-3xl font-extrabold text-slate-800 mb-2">CareConnect MVP</h1>
+          <p className="text-slate-500 mb-8 font-medium leading-relaxed">Stay connected with your family.<br/>Track routines & safety instantly.</p>
+          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-all flex justify-center items-center gap-3 text-lg">
+            Continue with Google
           </button>
+          <p className="text-xs text-slate-400 mt-6 uppercase tracking-widest font-bold">Family Routine Guardian</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-10">
-      <div className="max-w-lg mx-auto bg-white min-h-screen shadow-lg">
-        <div className="bg-blue-600 text-white p-5 flex justify-between items-center shadow-md">
-          <div className="flex items-center gap-3">
-            <img src={user.photoURL} alt="Me" className="w-10 h-10 rounded-full border-2 border-white" />
-            <h1 className="text-xl font-bold">CareConnect</h1>
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
+      <div className="max-w-lg mx-auto bg-white min-h-screen shadow-2xl">
+        {/* Modern Header */}
+        <div className="bg-blue-600 text-white p-6 flex justify-between items-center shadow-md rounded-b-3xl mb-4">
+          <div className="flex items-center gap-4">
+            <img src={user.photoURL} alt="Me" className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
+            <div>
+              <h1 className="text-2xl font-black tracking-tight">CareConnect</h1>
+              <p className="text-blue-200 text-xs font-medium tracking-wide">FAMILY GUARDIAN</p>
+            </div>
           </div>
-          <button onClick={() => signOut(auth)} className="bg-blue-800 hover:bg-blue-900 text-xs font-bold px-3 py-2 rounded-lg transition-all">LOGOUT</button>
+          <button onClick={() => signOut(auth)} className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-4 py-2 rounded-full transition-all backdrop-blur-sm">LOGOUT</button>
         </div>
 
         <div className="p-5 space-y-6">
+          
+          {/* Daily AI Summary Prototype Area (As per Plan) */}
+          <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl shadow-sm flex items-start gap-3">
+             <div className="text-2xl mt-1">✨</div>
+             <div>
+               <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-1">Today's Summary</p>
+               <p className="text-sm text-purple-900 font-medium">"Aaj sab normal lag raha hai. Papa ghar aa gaye hain, aur davai ka time ho gaya hai."</p>
+             </div>
+          </div>
+
           <Link href="/sos">
-            <div className="bg-red-500 hover:bg-red-600 text-white text-center py-4 rounded-2xl shadow-md font-bold text-lg cursor-pointer transition-all flex justify-center items-center gap-2">
-              <span>🚨</span> EMERGENCY SOS
+            <div className="bg-red-500 hover:bg-red-600 text-white text-center py-5 rounded-2xl shadow-xl shadow-red-200 font-black text-xl cursor-pointer transition-all flex justify-center items-center gap-3 border-2 border-red-400">
+              <span className="animate-pulse">🚨</span> EMERGENCY SOS
             </div>
           </Link>
 
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 shadow-sm">
-            <p className="text-xs font-bold text-blue-800 uppercase mb-1">My Current Status</p>
-            <p className="text-xl font-bold text-blue-900 mb-4">{myStatus}</p>
-            <div className="flex gap-2">
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 shadow-sm">
+            <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2 flex items-center gap-2"><span>📡</span> My Current Status</p>
+            <p className="text-2xl font-black text-blue-900 mb-5 tracking-tight">"{myStatus}"</p>
+            <div className="flex gap-2 bg-white p-2 rounded-2xl border border-blue-100 shadow-sm">
               <input 
                 type="text" 
-                placeholder="Where are you?" 
+                placeholder="Where are you? (e.g. Home)" 
                 value={statusInput}
                 onChange={(e) => setStatusInput(e.target.value)}
-                className="flex-1 border border-blue-200 rounded-xl px-4 py-2 focus:outline-none"
+                className="flex-1 bg-transparent px-4 py-2 focus:outline-none font-medium text-slate-700"
               />
-              <button onClick={updateStatus} className="bg-blue-600 text-white font-bold px-5 py-2 rounded-xl">Update</button>
+              <button onClick={updateStatus} className="bg-blue-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-blue-700 transition-all shadow-md">Post</button>
             </div>
           </div>
 
           <div>
-            <h2 className="text-lg font-extrabold text-slate-800 mb-4">👨‍👩‍👧‍👦 Family Feed</h2>
-            <div className="space-y-3">
+            <h2 className="text-lg font-black text-slate-800 mb-4 px-2 flex items-center justify-between">
+              <span className="flex items-center gap-2">👨‍👩‍👧‍👦 Family Feed</span>
+              <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded-full">{familyMembers.length} Active</span>
+            </h2>
+            <div className="space-y-4">
               {familyMembers.map((member) => (
-                <div key={member.id} className={`border rounded-2xl p-4 flex items-start gap-4 shadow-sm ${member.status?.includes("EMERGENCY") ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
-                  <img src={member.photoURL} alt={member.name} className="w-12 h-12 rounded-full" />
+                <div key={member.id} className={`rounded-3xl p-5 flex items-center gap-5 transition-all ${member.status?.includes("EMERGENCY") ? "bg-red-50 border-2 border-red-200 shadow-md" : "bg-white border border-slate-100 shadow-sm"}`}>
+                  <div className="relative">
+                    <img src={member.photoURL} alt={member.name} className="w-14 h-14 rounded-full object-cover" />
+                    <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-white ${member.status?.includes("EMERGENCY") ? "bg-red-500 animate-ping" : "bg-green-500"}`}></div>
+                  </div>
                   <div className="flex-1">
-                    <div className="flex justify-between mb-1">
-                      <h3 className="font-bold">{member.name} {member.id === user.uid && "(You)"}</h3>
-                      <span className="text-xs font-bold text-slate-400">{member.lastUpdated}</span>
+                    <div className="flex justify-between items-baseline mb-1">
+                      <h3 className="font-extrabold text-slate-900 text-lg">{member.name.split(' ')[0]} {member.id === user?.uid && "(You)"}</h3>
+                      <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-md">{member.lastUpdated}</span>
                     </div>
-                    <p className={`font-medium p-2 rounded-lg border inline-block w-full ${member.status?.includes("EMERGENCY") ? "bg-red-100 border-red-200 text-red-800" : "bg-slate-50 border-slate-100"}`}>
-                      {member.status || "No status yet"}
+                    <p className={`font-semibold text-sm ${member.status?.includes("EMERGENCY") ? "text-red-700" : "text-slate-600"}`}>
+                      {member.status || "Unknown Location"}
                     </p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
+
         </div>
       </div>
     </div>
