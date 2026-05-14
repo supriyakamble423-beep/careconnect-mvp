@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Ye dono lines Vercel ko error ignore karne ka order dengi
+  // Vercel ko bolne ke liye ki choti galtiyon par error mat do
   eslint: {
     ignoreDuringBuilds: true,
   },
