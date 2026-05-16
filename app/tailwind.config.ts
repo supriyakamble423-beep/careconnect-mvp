@@ -1,0 +1,72 @@
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        "tertiary-fixed": "#ffdcbe",
+        "surface-dim": "#d9dadb",
+        "background": "#f8f9fa",
+        "surface-container-low": "#f3f4f5",
+        "primary-container": "#4c799f",
+        "inverse-on-surface": "#f0f1f2",
+        "tertiary-container": "#9b6a37",
+        "on-error-container": "#93000a",
+        "primary-fixed": "#cde5ff",
+        "tertiary-fixed-dim": "#f7ba80",
+        "on-secondary-fixed": "#07200b",
+        "on-secondary-fixed-variant": "#334d33",
+        "on-surface-variant": "#42474e",
+        "surface": "#f8f9fa",
+        "surface-tint": "#346287",
+        "secondary": "#4a6549",
+        "on-primary-fixed": "#001d32",
+        "inverse-primary": "#9fcbf5",
+        "primary-fixed-dim": "#9fcbf5",
+        "surface-bright": "#f8f9fa",
+        "error": "#ba1a1a",
+        "on-error": "#ffffff",
+        "secondary-fixed": "#ccebc7",
+        "surface-container": "#edeeef",
+        "on-primary": "#ffffff",
+        "primary": "#326085",
+        "surface-container-high": "#e7e8e9",
+        "surface-container-lowest": "#ffffff",
+        "inverse-surface": "#2e3132",
+        "tertiary": "#7f5221",
+        "on-tertiary-container": "#fffbff",
+        "on-primary-container": "#fdfcff",
+        "on-secondary": "#ffffff",
+        "on-tertiary": "#ffffff",
+        "on-primary-fixed-variant": "#184a6e",
+        "surface-variant": "#e1e3e4",
+        "on-background": "#191c1d",
+        "outline": "#72787f",
+        "outline-variant": "#c2c7cf",
+        "on-tertiary-fixed-variant": "#663d0e",
+        "on-surface": "#191c1d",
+        "on-secondary-container": "#506b4f",
+        "on-tertiary-fixed": "#2d1600",
+        "secondary-fixed-dim": "#b0cfad",
+        "surface-container-highest": "#e1e3e4",
+        "error-container": "#ffdad6",
+        "secondary-container": "#ccebc7"
+      },
+      fontFamily: {
+        "headline-lg": ["Atkinson Hyperlegible Next", "sans-serif"],
+        "headline-md": ["Atkinson Hyperlegible Next", "sans-serif"],
+        "body-lg": ["Atkinson Hyperlegible Next", "sans-serif"],
+        "label-sm": ["Atkinson Hyperlegible Next", "sans-serif"],
+        "body-md": ["Atkinson Hyperlegible Next", "sans-serif"],
+        "label-lg": ["Atkinson Hyperlegible Next", "sans-serif"]
+      }
+    },
+  },
+  plugins: [],
+};
+export default config;
