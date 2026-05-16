@@ -52,7 +52,7 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
 
-  // DUAL ENGINE LOGIN FIX
+  // DUAL ENGINE LOGIN FIX (Ye sabse fast aur safe tarika hai)
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try { 
@@ -91,7 +91,8 @@ export default function Home() {
           <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
             <span className="text-4xl">🏠</span>
           </div>
-          <h1 className="text-3xl font-extrabold text-slate-800 mb-2">CareConnect MVP</h1>
+          {/* BRAND UPDATE: SafeCircle */}
+          <h1 className="text-3xl font-extrabold text-slate-800 mb-2">SafeCircle MVP</h1>
           <p className="text-slate-500 mb-8 font-medium leading-relaxed">Stay connected with your family.<br/>Track routines & safety instantly.</p>
           
           <button 
@@ -115,7 +116,8 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <img src={user.photoURL} alt="Me" className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
             <div>
-              <h1 className="text-2xl font-black tracking-tight">CareConnect</h1>
+              {/* BRAND UPDATE: SafeCircle */}
+              <h1 className="text-2xl font-black tracking-tight">SafeCircle</h1>
               <p className="text-blue-200 text-xs font-medium tracking-wide">FAMILY GUARDIAN</p>
             </div>
           </div>

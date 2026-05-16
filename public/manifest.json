@@ -1,7 +1,7 @@
 {
-  "name": "CareConnect",
-  "short_name": "CareConnect",
-  "description": "Stay connected with your family instantly.",
+  "name": "SafeCircle",
+  "short_name": "SafeCircle",
+  "description": "Family Routine Guardian",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
