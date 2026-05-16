@@ -11,11 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        {/* Fonts aur Icons yahan se direct load honge bina kisi error ke */}
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&display=swap" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
-      </head>
+      {/* GOD LEVEL FIX: Next.js ko apna kaam karne do, yahan koi <head> tag nahi aayega! */}
       <body className="bg-background text-on-background antialiased" suppressHydrationWarning={true}>
         {children}
       </body>
