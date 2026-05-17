@@ -13,8 +13,8 @@ export default function Home() {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
+  const [isLocating, setIsLocating] = useState(false); // ✨ GPS Tracking State
 
-  // ✨ RULES TAB STATES (Real-Time Inputs)
   const [rules, setRules] = useState<any[]>([]);
   const [showRuleForm, setShowRuleForm] = useState(false);
   const [ruleTitle, setRuleTitle] = useState("");
@@ -36,7 +36,6 @@ export default function Home() {
           photoURL: currentUser.photoURL,
         }, { merge: true });
 
-        // 1. Live Family Feed Listener
         const qUsers = query(collection(db, "users"));
         const unsubUsers = onSnapshot(qUsers, (snapshot) => {
           let membersData: any[] = [];
@@ -49,7 +48,6 @@ export default function Home() {
           setFamilyMembers(membersData);
         });
 
-        // 2. Live History Logs Listener
         const qLogs = query(collection(db, "logs"), orderBy("timestamp", "desc"), limit(15));
         const unsubLogs = onSnapshot(qLogs, (snapshot) => {
           let logsData: any[] = [];
@@ -59,7 +57,6 @@ export default function Home() {
           setActivityLogs(logsData);
         });
 
-        // 3. ✨ NAYA: Live Rules & Reminders Listener
         const qRules = query(collection(db, "rules"), orderBy("timestamp", "asc"));
         const unsubRules = onSnapshot(qRules, (snapshot) => {
           let rulesData: any[] = [];
@@ -74,23 +71,6 @@ export default function Home() {
     });
     return () => unsubscribeAuth();
   }, []);
-
-  // ✨ Naya Engine: Background Clock Reminder System (App khule hone par check karega)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      const currentHoursMinutes = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-      
-      rules.forEach((rule) => {
-        if (rule.time === currentHoursMinutes && !rule.triggeredToday) {
-          alert(`⏰ SafeCircle Reminder: Time for ${rule.assignee} to do [${rule.title}]!`);
-          // Note: Real world production me yahan se Push Notification trigger hoti hai.
-        }
-      });
-    }, 60000); // Har 1 minute me clock check hogi
-
-    return () => clearInterval(interval);
-  }, [rules]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -118,39 +98,60 @@ export default function Home() {
     setStatusInput(""); 
   };
 
-  // ✨ Naya Function: New Rule Database write
+  // ✨ NAYA FUNCTION: OUTDOOR GPS TRACKING (Zero Cost)
+  const shareLiveLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Aapka phone GPS tracking support nahi karta.");
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        
+        // Firebase me Location Save karo
+        await setDoc(doc(db, "users", user.uid), { 
+            status: "Shared Live Location 📍", 
+            lastUpdated: timeNow,
+            location: { lat, lng } // Saving GPS Coordinates
+        }, { merge: true });
+
+        await addDoc(collection(db, "logs"), {
+            userName: user.displayName.split(' ')[0],
+            action: "Updated Live GPS Location 📍",
+            time: timeNow,
+            timestamp: new Date().getTime(),
+            isEmergency: false
+        });
+
+        setIsLocating(false);
+        alert("Location updated successfully!");
+      },
+      (error) => {
+        setIsLocating(false);
+        alert("Location nikalne me error: " + error.message + ". Please allow location permission.");
+      },
+      { enableHighAccuracy: true } // Ekdum exact location ke liye
+    );
+  };
+
   const createNewRule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ruleTitle.trim() || !ruleTime) return;
-
-    // 24 Hour Format clean setup
     await addDoc(collection(db, "rules"), {
-      title: ruleTitle,
-      time: ruleTime,
-      category: ruleCategory,
-      assignee: ruleAssignee,
-      timestamp: new Date().getTime()
+      title: ruleTitle, time: ruleTime, category: ruleCategory, assignee: ruleAssignee, timestamp: new Date().getTime()
     });
-
-    // Automatic Log generation
     await addDoc(collection(db, "logs"), {
-      userName: user.displayName.split(' ')[0],
-      action: `Created a new ${ruleCategory} schedule: "${ruleTitle}" for ${ruleAssignee}`,
-      time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-      timestamp: new Date().getTime(),
-      isEmergency: false
+      userName: user.displayName.split(' ')[0], action: `Created a new ${ruleCategory} rule: "${ruleTitle}"`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), timestamp: new Date().getTime(), isEmergency: false
     });
-
-    // Reset Inputs
-    setRuleTitle("");
-    setRuleTime("");
-    setShowRuleForm(false);
+    setRuleTitle(""); setRuleTime(""); setShowRuleForm(false);
   };
 
   const deleteRule = async (id: string, title: string) => {
-    if(confirm(`Delete rule "${title}"?`)) {
-      await deleteDoc(doc(db, "rules", id));
-    }
+    if(confirm(`Delete rule "${title}"?`)) await deleteDoc(doc(db, "rules", id));
   };
 
   const copyInviteLink = () => {
@@ -187,7 +188,7 @@ export default function Home() {
             <h1 className="text-[22px] font-extrabold text-[#326085]">SafeCircle</h1>
           </div>
           <button onClick={() => signOut(auth)} className="active:scale-95 hover:bg-[#e7e8e9] rounded-full p-2 transition-all flex items-center justify-center text-[#ba1a1a]">
-            <span className="material-symbols-outlined">logout</span>
+            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>logout</span>
           </button>
         </div>
       </header>
@@ -195,20 +196,30 @@ export default function Home() {
       <main className="flex-1 px-5 max-w-2xl mx-auto pt-6 space-y-8 w-full">
         {/* --- HOME TAB --- */}
         {activeTab === "home" && (
-          <div className="space-y-8 animate-fade-in">
+          <div className="space-y-6 animate-fade-in">
             <button onClick={() => updateStatus("🚨 EMERGENCY! I NEED HELP!")} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white rounded-2xl p-5 shadow-[0_8px_20px_rgba(186,26,26,0.3)] flex flex-col items-center justify-center active:scale-95 transition-all border border-[#93000a]">
                 <span className="material-symbols-outlined text-[48px] animate-pulse mb-1">sos</span>
                 <span className="text-[20px] font-extrabold tracking-widest">SEND EMERGENCY ALERT</span>
             </button>
+            
             <section className="bg-white p-5 rounded-2xl shadow-[0_4px_12px_rgba(90,134,173,0.08)]">
                <h2 className="text-[18px] font-bold text-[#191c1d] mb-4 flex items-center gap-2">
                  <span className="material-symbols-outlined text-[#4a6549]">near_me</span> Post Normal Status
                </h2>
-               <div className="flex gap-3">
+               <div className="flex gap-3 mb-4">
                  <input type="text" placeholder="E.g. Reached office safely" value={statusInput} onChange={(e) => setStatusInput(e.target.value)} className="flex-1 bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085] font-medium" />
                  <button onClick={() => updateStatus(statusInput)} className="bg-[#326085] text-white px-5 rounded-xl font-bold active:scale-95 shadow-md">Update</button>
                </div>
+               
+               {/* ✨ GPS BUTTON */}
+               <div className="border-t border-[#e1e3e4] pt-4 mt-2">
+                  <button onClick={shareLiveLocation} disabled={isLocating} className="w-full bg-[#e7e8e9] hover:bg-[#cde5ff] text-[#326085] font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all">
+                     <span className="material-symbols-outlined">{isLocating ? 'hourglass_empty' : 'share_location'}</span>
+                     {isLocating ? 'Locating via Satellite...' : 'Share Exact GPS Location'}
+                  </button>
+               </div>
             </section>
+
             <section>
               <div className="flex justify-between items-end mb-4 px-1">
                 <h2 className="text-[22px] font-extrabold text-[#191c1d]">Live Family Feed</h2>
@@ -221,11 +232,18 @@ export default function Home() {
                       <img src={member.photoURL} alt={member.name} className="w-16 h-16 rounded-full object-cover shadow-sm" />
                       <div className={`absolute bottom-0 right-0 w-5 h-5 border-4 border-white rounded-full ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] animate-ping" : "bg-[#4a6549]"}`}></div>
                     </div>
-                    <div className="w-full">
+                    <div className="w-full flex flex-col items-center">
                       <h3 className="font-bold text-[16px] truncate">{member.name.split(' ')[0]}</h3>
                       <div className={`inline-flex items-center px-2 py-1 rounded-md mt-1 w-full justify-center ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] text-white" : "bg-[#ccebc7] text-[#506b4f]"}`}>
                         <span className="text-[11px] font-bold truncate max-w-[100px]">{member.status || "Online"}</span>
                       </div>
+                      
+                      {/* ✨ MAP LINK RENDERER */}
+                      {member.location && (
+                        <a href={`https://www.google.com/maps/search/?api=1&query=${member.location.lat},${member.location.lng}`} target="_blank" rel="noreferrer" className="mt-2 text-[#326085] text-[11px] font-bold flex items-center gap-1 bg-[#f3f4f5] px-2 py-1 rounded-md hover:bg-[#cde5ff] transition-colors w-full justify-center">
+                           <span className="material-symbols-outlined text-[14px]">map</span> View on Map
+                        </a>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -234,7 +252,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- 2. ✨ RULES TAB (FULLY OPERATIONAL) --- */}
+        {/* --- 2. RULES TAB --- */}
         {activeTab === "rules" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-2">
@@ -242,18 +260,14 @@ export default function Home() {
                 <p className="text-[#42474e]">Keep your family's daily schedules tight and synchronized.</p>
             </section>
 
-            {/* Toggle Build Form Button */}
             {!showRuleForm ? (
               <button onClick={() => setShowRuleForm(true)} className="w-full bg-[#326085] text-white py-4 rounded-xl font-bold shadow-md active:scale-95 transition-all flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined">add_circle</span> Create New Alarm Schedule
+                <span className="material-symbols-outlined">add_circle</span> Create New Schedule
               </button>
             ) : (
-              // Add New Rule Form Object
               <form onSubmit={createNewRule} className="bg-white p-5 rounded-2xl border border-[#c2c7cf] space-y-4 shadow-sm animate-fade-in">
                 <h3 className="text-lg font-bold text-[#326085]">Configure Routine Rule</h3>
-                
-                <input type="text" placeholder="Alarm Title (e.g. Evening Insulin Dose)" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
-                
+                <input type="text" placeholder="Alarm Title" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Select Time</label>
@@ -268,17 +282,12 @@ export default function Home() {
                     </select>
                   </div>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To Family Member</label>
+                  <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To</label>
                   <select value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]">
-                    <option value="Papa">Papa</option>
-                    <option value="Mama">Mama</option>
-                    <option value="Children">Children</option>
-                    <option value="Family">Whole Family</option>
+                    <option value="Papa">Papa</option><option value="Mama">Mama</option><option value="Children">Children</option><option value="Family">Whole Family</option>
                   </select>
                 </div>
-
                 <div className="flex gap-2 pt-2">
                   <button type="submit" className="flex-1 bg-[#4a6549] text-white py-3 rounded-xl font-bold shadow-md">Save Rule</button>
                   <button type="button" onClick={() => setShowRuleForm(false)} className="bg-[#f3f4f5] text-[#42474e] px-4 rounded-xl font-bold">Cancel</button>
@@ -286,20 +295,16 @@ export default function Home() {
               </form>
             )}
 
-            {/* Dynamic Rules Output Renderer */}
             <div className="space-y-4">
               {rules.length === 0 ? (
-                <p className="text-center text-[#72787f] py-10">No rules scheduled yet. Click above to add your first alarm!</p>
+                <p className="text-center text-[#72787f] py-10">No rules scheduled yet.</p>
               ) : (
                 rules.map((rule) => {
-                  const isMed = rule.category === "Medicine";
-                  const isPray = rule.category === "Prayer";
+                  const isMed = rule.category === "Medicine"; const isPray = rule.category === "Prayer";
                   return (
                     <div key={rule.id} className={`bg-white rounded-xl p-4 shadow-sm flex items-center border-l-4 ${isMed ? 'border-[#326085]' : isPray ? 'border-[#7f5221]' : 'border-[#4a6549]'}`}>
                       <div className={`flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${isMed ? 'bg-[#cde5ff] text-[#326085]' : isPray ? 'bg-[#ffdcbe] text-[#7f5221]' : 'bg-[#ccebc7] text-[#4a6549]'}`}>
-                        <span className="material-symbols-outlined">
-                          {isMed ? 'medication' : isPray ? 'auto_awesome' : 'directions_walk'}
-                        </span>
+                        <span className="material-symbols-outlined">{isMed ? 'medication' : isPray ? 'auto_awesome' : 'directions_walk'}</span>
                       </div>
                       <div className="flex-grow">
                         <div className="flex items-center justify-between">
@@ -307,14 +312,9 @@ export default function Home() {
                           <span className="text-sm font-bold text-[#191c1d] bg-[#f3f4f5] px-2 py-0.5 rounded-md">⏰ {rule.time}</span>
                         </div>
                         <h3 className="font-bold text-[#191c1d] mt-1">{rule.title}</h3>
-                        <div className="flex items-center gap-1 mt-1 text-[#72787f] text-xs font-bold">
-                          <span className="material-symbols-outlined text-[14px]">person</span>
-                          <span>Assigned to: {rule.assignee}</span>
-                        </div>
+                        <div className="flex items-center gap-1 mt-1 text-[#72787f] text-xs font-bold"><span className="material-symbols-outlined text-[14px]">person</span><span>Assigned to: {rule.assignee}</span></div>
                       </div>
-                      <button onClick={() => deleteRule(rule.id, rule.title)} className="ml-4 text-[#ba1a1a] hover:bg-[#ffdad6] p-2 rounded-full transition-all">
-                        <span className="material-symbols-outlined text-[20px]">delete</span>
-                      </button>
+                      <button onClick={() => deleteRule(rule.id, rule.title)} className="ml-4 text-[#ba1a1a] hover:bg-[#ffdad6] p-2 rounded-full transition-all"><span className="material-symbols-outlined text-[20px]">delete</span></button>
                     </div>
                   );
                 })
@@ -351,7 +351,7 @@ export default function Home() {
             </section>
             <section className="space-y-4">
                 {activityLogs.length === 0 ? (
-                  <p className="text-center text-[#72787f] mt-10">No recent activity. Update your status to see it here!</p>
+                  <p className="text-center text-[#72787f] mt-10">No recent activity.</p>
                 ) : (
                   <div className="space-y-3">
                     {activityLogs.map((log) => (
@@ -371,27 +371,14 @@ export default function Home() {
             </section>
           </div>
         )}
-
       </main>
 
       {/* --- BOTTOM NAVIGATION BAR --- */}
       <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-white shadow-[0_-10px_20px_rgba(0,0,0,0.05)] rounded-t-3xl max-w-2xl mx-auto right-0 border-t border-[#e1e3e4]/50">
-        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'home' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}>
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span>
-          <span className="text-[12px] font-bold mt-1">Home</span>
-        </button>
-        <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'rules' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}>
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span>
-          <span className="text-[12px] font-bold mt-1">Rules</span>
-        </button>
-        <button onClick={() => setActiveTab('setup')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'setup' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}>
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'setup' ? "'FILL' 1" : "'FILL' 0" }}>group_add</span>
-          <span className="text-[12px] font-bold mt-1">Setup</span>
-        </button>
-        <button onClick={() => setActiveTab('logs')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'logs' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}>
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'logs' ? "'FILL' 1" : "'FILL' 0" }}>history</span>
-          <span className="text-[12px] font-bold mt-1">Logs</span>
-        </button>
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'home' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[12px] font-bold mt-1">Home</span></button>
+        <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'rules' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span><span className="text-[12px] font-bold mt-1">Rules</span></button>
+        <button onClick={() => setActiveTab('setup')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'setup' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'setup' ? "'FILL' 1" : "'FILL' 0" }}>group_add</span><span className="text-[12px] font-bold mt-1">Setup</span></button>
+        <button onClick={() => setActiveTab('logs')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'logs' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'logs' ? "'FILL' 1" : "'FILL' 0" }}>history</span><span className="text-[12px] font-bold mt-1">Logs</span></button>
       </nav>
     </div>
   );
