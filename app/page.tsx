@@ -13,14 +13,7 @@ export default function Home() {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
-  const [isLocating, setIsLocating] = useState(false); // ✨ GPS Tracking State
-
-  const [rules, setRules] = useState<any[]>([]);
-  const [showRuleForm, setShowRuleForm] = useState(false);
-  const [ruleTitle, setRuleTitle] = useState("");
-  const [ruleTime, setRuleTime] = useState("");
-  const [ruleCategory, setRuleCategory] = useState("Medicine");
-  const [ruleAssignee, setRuleAssignee] = useState("Papa");
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
   useEffect(() => {
     getRedirectResult(auth).then((result) => {
@@ -57,16 +50,7 @@ export default function Home() {
           setActivityLogs(logsData);
         });
 
-        const qRules = query(collection(db, "rules"), orderBy("timestamp", "asc"));
-        const unsubRules = onSnapshot(qRules, (snapshot) => {
-          let rulesData: any[] = [];
-          snapshot.forEach((doc) => {
-            rulesData.push({ id: doc.id, ...doc.data() });
-          });
-          setRules(rulesData);
-        });
-
-        return () => { unsubUsers(); unsubLogs(); unsubRules(); };
+        return () => { unsubUsers(); unsubLogs(); };
       }
     });
     return () => unsubscribeAuth();
@@ -86,7 +70,14 @@ export default function Home() {
   const updateStatus = async (newStatus: string) => {
     if (!newStatus.trim() || !user) return;
     const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    await setDoc(doc(db, "users", user.uid), { status: newStatus, lastUpdated: timeNow }, { merge: true });
+    
+    // Status update karte waqt map ko hata dete hain taaki naya status dikhe
+    await setDoc(doc(db, "users", user.uid), { 
+        status: newStatus, 
+        lastUpdated: timeNow,
+        lat: null, // Clear map
+        lon: null
+    }, { merge: true });
     
     await addDoc(collection(db, "logs"), {
         userName: user.displayName.split(' ')[0],
@@ -98,60 +89,48 @@ export default function Home() {
     setStatusInput(""); 
   };
 
-  // ✨ NAYA FUNCTION: OUTDOOR GPS TRACKING (Zero Cost)
-  const shareLiveLocation = () => {
-    if (!navigator.geolocation) {
-      alert("Aapka phone GPS tracking support nahi karta.");
-      return;
+  // ✨ GOD MODE: 2D MAP COORDINATES SAVER ✨
+  const shareExactLocation = () => {
+    if (!user) return;
+    setIsGettingLocation(true);
+
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+          // Firebase me exact latitude aur longitude save karenge
+          await setDoc(doc(db, "users", user.uid), { 
+              status: "📍 Shared Live 2D Location", 
+              lat: lat,
+              lon: lon,
+              lastUpdated: timeNow 
+          }, { merge: true });
+
+          await addDoc(collection(db, "logs"), {
+              userName: user.displayName.split(' ')[0],
+              action: "Shared exact GPS location on Map",
+              time: timeNow,
+              timestamp: new Date().getTime(),
+              isEmergency: false
+          });
+
+          setIsGettingLocation(false);
+          alert("2D Location updated securely!");
+        },
+        (error) => {
+          console.error("GPS Error:", error);
+          alert("Could not get location. Please allow GPS access in your browser.");
+          setIsGettingLocation(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      alert("Your device does not support GPS tracking.");
+      setIsGettingLocation(false);
     }
-
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        
-        // Firebase me Location Save karo
-        await setDoc(doc(db, "users", user.uid), { 
-            status: "Shared Live Location 📍", 
-            lastUpdated: timeNow,
-            location: { lat, lng } // Saving GPS Coordinates
-        }, { merge: true });
-
-        await addDoc(collection(db, "logs"), {
-            userName: user.displayName.split(' ')[0],
-            action: "Updated Live GPS Location 📍",
-            time: timeNow,
-            timestamp: new Date().getTime(),
-            isEmergency: false
-        });
-
-        setIsLocating(false);
-        alert("Location updated successfully!");
-      },
-      (error) => {
-        setIsLocating(false);
-        alert("Location nikalne me error: " + error.message + ". Please allow location permission.");
-      },
-      { enableHighAccuracy: true } // Ekdum exact location ke liye
-    );
-  };
-
-  const createNewRule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ruleTitle.trim() || !ruleTime) return;
-    await addDoc(collection(db, "rules"), {
-      title: ruleTitle, time: ruleTime, category: ruleCategory, assignee: ruleAssignee, timestamp: new Date().getTime()
-    });
-    await addDoc(collection(db, "logs"), {
-      userName: user.displayName.split(' ')[0], action: `Created a new ${ruleCategory} rule: "${ruleTitle}"`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), timestamp: new Date().getTime(), isEmergency: false
-    });
-    setRuleTitle(""); setRuleTime(""); setShowRuleForm(false);
-  };
-
-  const deleteRule = async (id: string, title: string) => {
-    if(confirm(`Delete rule "${title}"?`)) await deleteDoc(doc(db, "rules", id));
   };
 
   const copyInviteLink = () => {
@@ -194,57 +173,73 @@ export default function Home() {
       </header>
 
       <main className="flex-1 px-5 max-w-2xl mx-auto pt-6 space-y-8 w-full">
-        {/* --- HOME TAB --- */}
         {activeTab === "home" && (
-          <div className="space-y-6 animate-fade-in">
-            <button onClick={() => updateStatus("🚨 EMERGENCY! I NEED HELP!")} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white rounded-2xl p-5 shadow-[0_8px_20px_rgba(186,26,26,0.3)] flex flex-col items-center justify-center active:scale-95 transition-all border border-[#93000a]">
-                <span className="material-symbols-outlined text-[48px] animate-pulse mb-1">sos</span>
-                <span className="text-[20px] font-extrabold tracking-widest">SEND EMERGENCY ALERT</span>
-            </button>
+          <div className="space-y-8 animate-fade-in">
             
-            <section className="bg-white p-5 rounded-2xl shadow-[0_4px_12px_rgba(90,134,173,0.08)]">
-               <h2 className="text-[18px] font-bold text-[#191c1d] mb-4 flex items-center gap-2">
-                 <span className="material-symbols-outlined text-[#4a6549]">near_me</span> Post Normal Status
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => updateStatus("🚨 EMERGENCY! I NEED HELP!")} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white rounded-2xl p-4 shadow-[0_8px_20px_rgba(186,26,26,0.3)] flex flex-col items-center justify-center active:scale-95 transition-all border border-[#93000a]">
+                  <span className="material-symbols-outlined text-[36px] animate-pulse mb-1">sos</span>
+                  <span className="text-[14px] font-extrabold tracking-wider text-center">SOS ALERT</span>
+              </button>
+              
+              <button onClick={shareExactLocation} disabled={isGettingLocation} className={`w-full text-white rounded-2xl p-4 shadow-md flex flex-col items-center justify-center active:scale-95 transition-all border ${isGettingLocation ? 'bg-[#72787f] border-[#42474e]' : 'bg-[#4c799f] hover:bg-[#326085] border-[#326085]'}`}>
+                  <span className={`material-symbols-outlined text-[36px] mb-1 ${isGettingLocation ? 'animate-spin' : ''}`}>
+                    {isGettingLocation ? 'sync' : 'map'}
+                  </span>
+                  <span className="text-[14px] font-extrabold tracking-wider text-center">
+                    {isGettingLocation ? 'FINDING...' : 'SHARE 2D MAP'}
+                  </span>
+              </button>
+            </div>
+
+            <section className="bg-white p-5 rounded-2xl shadow-sm border border-[#e1e3e4]">
+               <h2 className="text-[16px] font-bold text-[#191c1d] mb-3 flex items-center gap-2">
+                 <span className="material-symbols-outlined text-[#4a6549]">chat_bubble</span> Manual Update
                </h2>
-               <div className="flex gap-3 mb-4">
-                 <input type="text" placeholder="E.g. Reached office safely" value={statusInput} onChange={(e) => setStatusInput(e.target.value)} className="flex-1 bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085] font-medium" />
-                 <button onClick={() => updateStatus(statusInput)} className="bg-[#326085] text-white px-5 rounded-xl font-bold active:scale-95 shadow-md">Update</button>
-               </div>
-               
-               {/* ✨ GPS BUTTON */}
-               <div className="border-t border-[#e1e3e4] pt-4 mt-2">
-                  <button onClick={shareLiveLocation} disabled={isLocating} className="w-full bg-[#e7e8e9] hover:bg-[#cde5ff] text-[#326085] font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all">
-                     <span className="material-symbols-outlined">{isLocating ? 'hourglass_empty' : 'share_location'}</span>
-                     {isLocating ? 'Locating via Satellite...' : 'Share Exact GPS Location'}
-                  </button>
+               <div className="flex gap-2">
+                 <input type="text" placeholder="E.g. Reached safely" value={statusInput} onChange={(e) => setStatusInput(e.target.value)} className="flex-1 bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085] font-medium text-sm" />
+                 <button onClick={() => updateStatus(statusInput)} className="bg-[#326085] text-white px-4 rounded-xl font-bold active:scale-95">Post</button>
                </div>
             </section>
 
+            {/* LIVE FEED WITH 2D MAP INTEGRATION */}
             <section>
               <div className="flex justify-between items-end mb-4 px-1">
                 <h2 className="text-[22px] font-extrabold text-[#191c1d]">Live Family Feed</h2>
                 <span className="text-[#326085] font-bold text-sm bg-[#cde5ff] px-3 py-1 rounded-full">{familyMembers.length} Online</span>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {familyMembers.map((member) => (
-                  <div key={member.id} className={`bg-white p-4 rounded-2xl shadow-sm flex flex-col items-center text-center space-y-3 transition-transform border ${member.status?.includes("EMERGENCY") ? "border-[#ba1a1a] bg-[#ffdad6]" : "border-[#e1e3e4]"}`}>
-                    <div className="relative">
-                      <img src={member.photoURL} alt={member.name} className="w-16 h-16 rounded-full object-cover shadow-sm" />
-                      <div className={`absolute bottom-0 right-0 w-5 h-5 border-4 border-white rounded-full ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] animate-ping" : "bg-[#4a6549]"}`}></div>
-                    </div>
-                    <div className="w-full flex flex-col items-center">
-                      <h3 className="font-bold text-[16px] truncate">{member.name.split(' ')[0]}</h3>
-                      <div className={`inline-flex items-center px-2 py-1 rounded-md mt-1 w-full justify-center ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] text-white" : "bg-[#ccebc7] text-[#506b4f]"}`}>
-                        <span className="text-[11px] font-bold truncate max-w-[100px]">{member.status || "Online"}</span>
+                  <div key={member.id} className={`bg-white p-4 rounded-2xl shadow-sm flex flex-col gap-4 transition-transform border ${member.status?.includes("EMERGENCY") ? "border-[#ba1a1a] bg-[#ffdad6]" : "border-[#e1e3e4]"}`}>
+                    <div className="flex items-center gap-4">
+                      <div className="relative shrink-0">
+                        <img src={member.photoURL} alt={member.name} className="w-14 h-14 rounded-full object-cover shadow-sm" />
+                        <div className={`absolute bottom-0 right-0 w-4 h-4 border-2 border-white rounded-full ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] animate-ping" : "bg-[#4a6549]"}`}></div>
                       </div>
-                      
-                      {/* ✨ MAP LINK RENDERER */}
-                      {member.location && (
-                        <a href={`https://www.google.com/maps/search/?api=1&query=${member.location.lat},${member.location.lng}`} target="_blank" rel="noreferrer" className="mt-2 text-[#326085] text-[11px] font-bold flex items-center gap-1 bg-[#f3f4f5] px-2 py-1 rounded-md hover:bg-[#cde5ff] transition-colors w-full justify-center">
-                           <span className="material-symbols-outlined text-[14px]">map</span> View on Map
-                        </a>
-                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center mb-1">
+                          <h3 className={`font-bold text-[16px] truncate ${member.status?.includes("EMERGENCY") ? "text-[#93000a]" : "text-[#191c1d]"}`}>{member.name}</h3>
+                          <p className="text-[10px] font-bold text-[#72787f] bg-[#f3f4f5] px-2 py-1 rounded-md">{member.lastUpdated}</p>
+                        </div>
+                        
+                        <div className={`inline-flex items-center px-2 py-1 rounded-md mt-1 mb-2 ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] text-white" : "bg-[#ccebc7] text-[#506b4f]"}`}>
+                          <span className="text-[12px] font-bold truncate">{member.status || "Online"}</span>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* ✨ FREE 2D MAP RENDERER ✨ */}
+                    {member.lat && member.lon && (
+                      <div className="w-full h-48 rounded-xl overflow-hidden border border-[#c2c7cf]">
+                        <iframe 
+                          width="100%" 
+                          height="100%" 
+                          frameBorder="0" 
+                          scrolling="no" 
+                          src={`https://www.openstreetmap.org/export/embed.html?bbox=${member.lon-0.005},${member.lat-0.005},${member.lon+0.005},${member.lat+0.005}&layer=mapnik&marker=${member.lat},${member.lon}`}
+                        ></iframe>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -252,84 +247,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- 2. RULES TAB --- */}
-        {activeTab === "rules" && (
-          <div className="space-y-6 animate-fade-in">
-             <section className="space-y-2">
-                <h2 className="text-[28px] font-extrabold text-[#191c1d]">Rules & Reminders</h2>
-                <p className="text-[#42474e]">Keep your family's daily schedules tight and synchronized.</p>
-            </section>
-
-            {!showRuleForm ? (
-              <button onClick={() => setShowRuleForm(true)} className="w-full bg-[#326085] text-white py-4 rounded-xl font-bold shadow-md active:scale-95 transition-all flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined">add_circle</span> Create New Schedule
-              </button>
-            ) : (
-              <form onSubmit={createNewRule} className="bg-white p-5 rounded-2xl border border-[#c2c7cf] space-y-4 shadow-sm animate-fade-in">
-                <h3 className="text-lg font-bold text-[#326085]">Configure Routine Rule</h3>
-                <input type="text" placeholder="Alarm Title" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Select Time</label>
-                    <input type="time" value={ruleTime} onChange={(e) => setRuleTime(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]" required />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Category</label>
-                    <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]">
-                      <option value="Medicine">Medicine 💊</option>
-                      <option value="Prayer">Prayer 📿</option>
-                      <option value="Activity">Activity 🚶‍♂️</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To</label>
-                  <select value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]">
-                    <option value="Papa">Papa</option><option value="Mama">Mama</option><option value="Children">Children</option><option value="Family">Whole Family</option>
-                  </select>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button type="submit" className="flex-1 bg-[#4a6549] text-white py-3 rounded-xl font-bold shadow-md">Save Rule</button>
-                  <button type="button" onClick={() => setShowRuleForm(false)} className="bg-[#f3f4f5] text-[#42474e] px-4 rounded-xl font-bold">Cancel</button>
-                </div>
-              </form>
-            )}
-
-            <div className="space-y-4">
-              {rules.length === 0 ? (
-                <p className="text-center text-[#72787f] py-10">No rules scheduled yet.</p>
-              ) : (
-                rules.map((rule) => {
-                  const isMed = rule.category === "Medicine"; const isPray = rule.category === "Prayer";
-                  return (
-                    <div key={rule.id} className={`bg-white rounded-xl p-4 shadow-sm flex items-center border-l-4 ${isMed ? 'border-[#326085]' : isPray ? 'border-[#7f5221]' : 'border-[#4a6549]'}`}>
-                      <div className={`flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${isMed ? 'bg-[#cde5ff] text-[#326085]' : isPray ? 'bg-[#ffdcbe] text-[#7f5221]' : 'bg-[#ccebc7] text-[#4a6549]'}`}>
-                        <span className="material-symbols-outlined">{isMed ? 'medication' : isPray ? 'auto_awesome' : 'directions_walk'}</span>
-                      </div>
-                      <div className="flex-grow">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-xs font-bold uppercase ${isMed ? 'text-[#326085]' : isPray ? 'text-[#7f5221]' : 'text-[#4a6549]'}`}>{rule.category}</span>
-                          <span className="text-sm font-bold text-[#191c1d] bg-[#f3f4f5] px-2 py-0.5 rounded-md">⏰ {rule.time}</span>
-                        </div>
-                        <h3 className="font-bold text-[#191c1d] mt-1">{rule.title}</h3>
-                        <div className="flex items-center gap-1 mt-1 text-[#72787f] text-xs font-bold"><span className="material-symbols-outlined text-[14px]">person</span><span>Assigned to: {rule.assignee}</span></div>
-                      </div>
-                      <button onClick={() => deleteRule(rule.id, rule.title)} className="ml-4 text-[#ba1a1a] hover:bg-[#ffdad6] p-2 rounded-full transition-all"><span className="material-symbols-outlined text-[20px]">delete</span></button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* --- 3. SETUP TAB --- */}
+        {/* --- SETUP TAB --- */}
         {activeTab === "setup" && (
           <div className="space-y-6 animate-fade-in">
-             <section className="space-y-2">
-                <h1 className="text-[28px] font-extrabold text-[#326085]">Family Setup</h1>
-                <p className="text-[#42474e]">Invite your family members easily. No technical setup required.</p>
-            </section>
             <section className="bg-white p-6 rounded-3xl space-y-4 border border-[#c2c7cf]/50 shadow-sm">
                 <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-[#4a6549] rounded-full flex items-center justify-center text-white"><span className="material-symbols-outlined">share</span></div>
@@ -342,43 +262,35 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- 4. LOGS TAB --- */}
+        {/* --- LOGS TAB --- */}
         {activeTab === "logs" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-2">
                 <h2 className="text-[28px] font-extrabold text-[#191c1d]">Activity Logs</h2>
-                <p className="text-[#42474e]">Real-time history of your family's updates.</p>
             </section>
             <section className="space-y-4">
-                {activityLogs.length === 0 ? (
-                  <p className="text-center text-[#72787f] mt-10">No recent activity.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {activityLogs.map((log) => (
-                       <div key={log.id} className={`bg-white rounded-xl p-4 shadow-sm flex gap-4 relative overflow-hidden border ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/30' : 'border-[#e1e3e4]'}`}>
-                          <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${log.isEmergency ? 'bg-[#ba1a1a]' : 'bg-[#4a6549]'}`}></div>
-                          <div className="flex-1 space-y-1">
-                              <div className="flex justify-between items-start">
-                                  <h3 className="font-bold text-[#191c1d]">{log.userName}</h3>
-                                  <span className="text-xs text-[#42474e]">{log.time}</span>
-                              </div>
-                              <p className={`text-sm ${log.isEmergency ? 'font-bold text-[#93000a]' : 'text-[#42474e]'}`}>{log.action}</p>
+                {activityLogs.map((log) => (
+                   <div key={log.id} className={`bg-white rounded-xl p-4 shadow-sm flex gap-4 relative overflow-hidden border ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/30' : 'border-[#e1e3e4]'}`}>
+                      <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${log.isEmergency ? 'bg-[#ba1a1a]' : 'bg-[#4a6549]'}`}></div>
+                      <div className="flex-1 space-y-1">
+                          <div className="flex justify-between items-start">
+                              <h3 className="font-bold text-[#191c1d]">{log.userName}</h3>
+                              <span className="text-xs text-[#42474e]">{log.time}</span>
                           </div>
+                          <p className={`text-sm ${log.isEmergency ? 'font-bold text-[#93000a]' : 'text-[#42474e]'}`}>{log.action}</p>
                       </div>
-                    ))}
                   </div>
-                )}
+                ))}
             </section>
           </div>
         )}
       </main>
 
       {/* --- BOTTOM NAVIGATION BAR --- */}
-      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-white shadow-[0_-10px_20px_rgba(0,0,0,0.05)] rounded-t-3xl max-w-2xl mx-auto right-0 border-t border-[#e1e3e4]/50">
-        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'home' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[12px] font-bold mt-1">Home</span></button>
-        <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'rules' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span><span className="text-[12px] font-bold mt-1">Rules</span></button>
-        <button onClick={() => setActiveTab('setup')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'setup' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'setup' ? "'FILL' 1" : "'FILL' 0" }}>group_add</span><span className="text-[12px] font-bold mt-1">Setup</span></button>
-        <button onClick={() => setActiveTab('logs')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'logs' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e] hover:bg-[#f3f4f5]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'logs' ? "'FILL' 1" : "'FILL' 0" }}>history</span><span className="text-[12px] font-bold mt-1">Logs</span></button>
+      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 py-3 bg-white shadow-[0_-10px_20px_rgba(0,0,0,0.05)] rounded-t-3xl max-w-2xl mx-auto border-t border-[#e1e3e4]/50">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'home' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[12px] font-bold mt-1">Home</span></button>
+        <button onClick={() => setActiveTab('setup')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'setup' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'setup' ? "'FILL' 1" : "'FILL' 0" }}>group_add</span><span className="text-[12px] font-bold mt-1">Setup</span></button>
+        <button onClick={() => setActiveTab('logs')} className={`flex flex-col items-center justify-center transition-all px-5 py-2 rounded-2xl ${activeTab === 'logs' ? 'bg-[#cde5ff] text-[#001d32]' : 'text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'logs' ? "'FILL' 1" : "'FILL' 0" }}>history</span><span className="text-[12px] font-bold mt-1">Logs</span></button>
       </nav>
     </div>
   );
