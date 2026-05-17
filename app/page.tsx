@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, setDoc, onSnapshot, collection, query, addDoc, orderBy, limit } from "firebase/firestore";
+import { doc, setDoc, onSnapshot, collection, query, addDoc, orderBy, limit, deleteDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "../lib/firebase";
 
 export default function Home() {
@@ -10,10 +10,17 @@ export default function Home() {
   const [statusInput, setStatusInput] = useState("");
   const [myStatus, setMyStatus] = useState("Loading...");
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
-  // ✨ Naya State: Asli History Logs save karne ke liye
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
+
+  // ✨ RULES TAB STATES (Real-Time Inputs)
+  const [rules, setRules] = useState<any[]>([]);
+  const [showRuleForm, setShowRuleForm] = useState(false);
+  const [ruleTitle, setRuleTitle] = useState("");
+  const [ruleTime, setRuleTime] = useState("");
+  const [ruleCategory, setRuleCategory] = useState("Medicine");
+  const [ruleAssignee, setRuleAssignee] = useState("Papa");
 
   useEffect(() => {
     getRedirectResult(auth).then((result) => {
@@ -42,7 +49,7 @@ export default function Home() {
           setFamilyMembers(membersData);
         });
 
-        // 2. ✨ NAYA: Live History Logs Listener (Sirf latest 15 logs)
+        // 2. Live History Logs Listener
         const qLogs = query(collection(db, "logs"), orderBy("timestamp", "desc"), limit(15));
         const unsubLogs = onSnapshot(qLogs, (snapshot) => {
           let logsData: any[] = [];
@@ -52,11 +59,38 @@ export default function Home() {
           setActivityLogs(logsData);
         });
 
-        return () => { unsubUsers(); unsubLogs(); };
+        // 3. ✨ NAYA: Live Rules & Reminders Listener
+        const qRules = query(collection(db, "rules"), orderBy("timestamp", "asc"));
+        const unsubRules = onSnapshot(qRules, (snapshot) => {
+          let rulesData: any[] = [];
+          snapshot.forEach((doc) => {
+            rulesData.push({ id: doc.id, ...doc.data() });
+          });
+          setRules(rulesData);
+        });
+
+        return () => { unsubUsers(); unsubLogs(); unsubRules(); };
       }
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // ✨ Naya Engine: Background Clock Reminder System (App khule hone par check karega)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const currentHoursMinutes = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+      
+      rules.forEach((rule) => {
+        if (rule.time === currentHoursMinutes && !rule.triggeredToday) {
+          alert(`⏰ SafeCircle Reminder: Time for ${rule.assignee} to do [${rule.title}]!`);
+          // Note: Real world production me yahan se Push Notification trigger hoti hai.
+        }
+      });
+    }, 60000); // Har 1 minute me clock check hogi
+
+    return () => clearInterval(interval);
+  }, [rules]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -69,15 +103,11 @@ export default function Home() {
     }
   };
 
-  // ✨ Asli Status Update + Automatic Log Entry
   const updateStatus = async (newStatus: string) => {
     if (!newStatus.trim() || !user) return;
     const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    
-    // 1. User ki current profile update karo
     await setDoc(doc(db, "users", user.uid), { status: newStatus, lastUpdated: timeNow }, { merge: true });
     
-    // 2. Logs History me ek nayi entry daalo
     await addDoc(collection(db, "logs"), {
         userName: user.displayName.split(' ')[0],
         action: newStatus,
@@ -85,8 +115,42 @@ export default function Home() {
         timestamp: new Date().getTime(),
         isEmergency: newStatus.includes("EMERGENCY")
     });
-
     setStatusInput(""); 
+  };
+
+  // ✨ Naya Function: New Rule Database write
+  const createNewRule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ruleTitle.trim() || !ruleTime) return;
+
+    // 24 Hour Format clean setup
+    await addDoc(collection(db, "rules"), {
+      title: ruleTitle,
+      time: ruleTime,
+      category: ruleCategory,
+      assignee: ruleAssignee,
+      timestamp: new Date().getTime()
+    });
+
+    // Automatic Log generation
+    await addDoc(collection(db, "logs"), {
+      userName: user.displayName.split(' ')[0],
+      action: `Created a new ${ruleCategory} schedule: "${ruleTitle}" for ${ruleAssignee}`,
+      time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+      timestamp: new Date().getTime(),
+      isEmergency: false
+    });
+
+    // Reset Inputs
+    setRuleTitle("");
+    setRuleTime("");
+    setShowRuleForm(false);
+  };
+
+  const deleteRule = async (id: string, title: string) => {
+    if(confirm(`Delete rule "${title}"?`)) {
+      await deleteDoc(doc(db, "rules", id));
+    }
   };
 
   const copyInviteLink = () => {
@@ -108,7 +172,6 @@ export default function Home() {
                <span className="material-symbols-outlined">login</span>
                {isLoggingIn ? "Connecting..." : "Continue with Google"}
              </button>
-             <p className="text-[#72787f] text-xs mt-6 uppercase tracking-widest font-bold">Secure Family Network</p>
            </div>
         </div>
       </div>
@@ -124,7 +187,7 @@ export default function Home() {
             <h1 className="text-[22px] font-extrabold text-[#326085]">SafeCircle</h1>
           </div>
           <button onClick={() => signOut(auth)} className="active:scale-95 hover:bg-[#e7e8e9] rounded-full p-2 transition-all flex items-center justify-center text-[#ba1a1a]">
-            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>logout</span>
+            <span className="material-symbols-outlined">logout</span>
           </button>
         </div>
       </header>
@@ -159,11 +222,10 @@ export default function Home() {
                       <div className={`absolute bottom-0 right-0 w-5 h-5 border-4 border-white rounded-full ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] animate-ping" : "bg-[#4a6549]"}`}></div>
                     </div>
                     <div className="w-full">
-                      <h3 className={`font-bold text-[16px] truncate ${member.status?.includes("EMERGENCY") ? "text-[#93000a]" : "text-[#191c1d]"}`}>{member.name.split(' ')[0]}</h3>
+                      <h3 className="font-bold text-[16px] truncate">{member.name.split(' ')[0]}</h3>
                       <div className={`inline-flex items-center px-2 py-1 rounded-md mt-1 w-full justify-center ${member.status?.includes("EMERGENCY") ? "bg-[#ba1a1a] text-white" : "bg-[#ccebc7] text-[#506b4f]"}`}>
                         <span className="text-[11px] font-bold truncate max-w-[100px]">{member.status || "Online"}</span>
                       </div>
-                      <p className="text-[10px] font-medium text-[#72787f] mt-1">{member.lastUpdated}</p>
                     </div>
                   </div>
                 ))}
@@ -172,12 +234,92 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- 2. RULES TAB --- */}
+        {/* --- 2. ✨ RULES TAB (FULLY OPERATIONAL) --- */}
         {activeTab === "rules" && (
-           <div className="space-y-6 animate-fade-in text-center py-10">
-             <span className="material-symbols-outlined text-[60px] text-[#c2c7cf]">build</span>
-             <h2 className="text-[22px] font-extrabold text-[#191c1d]">Coming Soon</h2>
-             <p className="text-[#42474e]">Rules & Reminders engine is under development.</p>
+          <div className="space-y-6 animate-fade-in">
+             <section className="space-y-2">
+                <h2 className="text-[28px] font-extrabold text-[#191c1d]">Rules & Reminders</h2>
+                <p className="text-[#42474e]">Keep your family's daily schedules tight and synchronized.</p>
+            </section>
+
+            {/* Toggle Build Form Button */}
+            {!showRuleForm ? (
+              <button onClick={() => setShowRuleForm(true)} className="w-full bg-[#326085] text-white py-4 rounded-xl font-bold shadow-md active:scale-95 transition-all flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined">add_circle</span> Create New Alarm Schedule
+              </button>
+            ) : (
+              // Add New Rule Form Object
+              <form onSubmit={createNewRule} className="bg-white p-5 rounded-2xl border border-[#c2c7cf] space-y-4 shadow-sm animate-fade-in">
+                <h3 className="text-lg font-bold text-[#326085]">Configure Routine Rule</h3>
+                
+                <input type="text" placeholder="Alarm Title (e.g. Evening Insulin Dose)" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Select Time</label>
+                    <input type="time" value={ruleTime} onChange={(e) => setRuleTime(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Category</label>
+                    <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]">
+                      <option value="Medicine">Medicine 💊</option>
+                      <option value="Prayer">Prayer 📿</option>
+                      <option value="Activity">Activity 🚶‍♂️</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To Family Member</label>
+                  <select value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]">
+                    <option value="Papa">Papa</option>
+                    <option value="Mama">Mama</option>
+                    <option value="Children">Children</option>
+                    <option value="Family">Whole Family</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button type="submit" className="flex-1 bg-[#4a6549] text-white py-3 rounded-xl font-bold shadow-md">Save Rule</button>
+                  <button type="button" onClick={() => setShowRuleForm(false)} className="bg-[#f3f4f5] text-[#42474e] px-4 rounded-xl font-bold">Cancel</button>
+                </div>
+              </form>
+            )}
+
+            {/* Dynamic Rules Output Renderer */}
+            <div className="space-y-4">
+              {rules.length === 0 ? (
+                <p className="text-center text-[#72787f] py-10">No rules scheduled yet. Click above to add your first alarm!</p>
+              ) : (
+                rules.map((rule) => {
+                  const isMed = rule.category === "Medicine";
+                  const isPray = rule.category === "Prayer";
+                  return (
+                    <div key={rule.id} className={`bg-white rounded-xl p-4 shadow-sm flex items-center border-l-4 ${isMed ? 'border-[#326085]' : isPray ? 'border-[#7f5221]' : 'border-[#4a6549]'}`}>
+                      <div className={`flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${isMed ? 'bg-[#cde5ff] text-[#326085]' : isPray ? 'bg-[#ffdcbe] text-[#7f5221]' : 'bg-[#ccebc7] text-[#4a6549]'}`}>
+                        <span className="material-symbols-outlined">
+                          {isMed ? 'medication' : isPray ? 'auto_awesome' : 'directions_walk'}
+                        </span>
+                      </div>
+                      <div className="flex-grow">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs font-bold uppercase ${isMed ? 'text-[#326085]' : isPray ? 'text-[#7f5221]' : 'text-[#4a6549]'}`}>{rule.category}</span>
+                          <span className="text-sm font-bold text-[#191c1d] bg-[#f3f4f5] px-2 py-0.5 rounded-md">⏰ {rule.time}</span>
+                        </div>
+                        <h3 className="font-bold text-[#191c1d] mt-1">{rule.title}</h3>
+                        <div className="flex items-center gap-1 mt-1 text-[#72787f] text-xs font-bold">
+                          <span className="material-symbols-outlined text-[14px]">person</span>
+                          <span>Assigned to: {rule.assignee}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => deleteRule(rule.id, rule.title)} className="ml-4 text-[#ba1a1a] hover:bg-[#ffdad6] p-2 rounded-full transition-all">
+                        <span className="material-symbols-outlined text-[20px]">delete</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
 
@@ -193,10 +335,6 @@ export default function Home() {
                     <div className="w-12 h-12 bg-[#4a6549] rounded-full flex items-center justify-center text-white"><span className="material-symbols-outlined">share</span></div>
                     <div><h2 className="text-[20px] font-bold text-[#4a6549]">Invite Members</h2><p className="text-sm text-[#42474e]">Add people to your Live Feed</p></div>
                 </div>
-                <div className="p-4 bg-[#f3f4f5] rounded-xl flex gap-3 items-start border border-[#e1e3e4]">
-                    <span className="material-symbols-outlined text-[#326085] text-[24px]">magic_button</span>
-                    <p className="text-sm text-[#42474e] font-medium leading-relaxed">MAC address ki zaroorat nahi! Bas link copy karein aur WhatsApp karein.</p>
-                </div>
                 <button onClick={copyInviteLink} className="w-full h-[56px] bg-[#326085] text-white text-lg font-bold rounded-full shadow-md active:scale-95 transition-all mt-4 flex items-center justify-center gap-2">
                     <span className="material-symbols-outlined">content_copy</span> Copy Invite Link
                 </button>
@@ -204,27 +342,21 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- 4. LOGS TAB (✨ ASLI LIVE LOGS) --- */}
+        {/* --- 4. LOGS TAB --- */}
         {activeTab === "logs" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-2">
                 <h2 className="text-[28px] font-extrabold text-[#191c1d]">Activity Logs</h2>
                 <p className="text-[#42474e]">Real-time history of your family's updates.</p>
             </section>
-
             <section className="space-y-4">
                 {activityLogs.length === 0 ? (
                   <p className="text-center text-[#72787f] mt-10">No recent activity. Update your status to see it here!</p>
                 ) : (
                   <div className="space-y-3">
                     {activityLogs.map((log) => (
-                       <div key={log.id} className={`bg-white rounded-xl p-4 shadow-sm flex gap-4 relative overflow-hidden transition-transform border ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/30' : 'border-[#e1e3e4]'}`}>
+                       <div key={log.id} className={`bg-white rounded-xl p-4 shadow-sm flex gap-4 relative overflow-hidden border ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/30' : 'border-[#e1e3e4]'}`}>
                           <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${log.isEmergency ? 'bg-[#ba1a1a]' : 'bg-[#4a6549]'}`}></div>
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${log.isEmergency ? 'bg-[#ffdad6]' : 'bg-[#ccebc7]'}`}>
-                              <span className={`material-symbols-outlined ${log.isEmergency ? 'text-[#93000a]' : 'text-[#506b4f]'}`}>
-                                {log.isEmergency ? 'warning' : 'history_edu'}
-                              </span>
-                          </div>
                           <div className="flex-1 space-y-1">
                               <div className="flex justify-between items-start">
                                   <h3 className="font-bold text-[#191c1d]">{log.userName}</h3>
