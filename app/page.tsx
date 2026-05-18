@@ -41,11 +41,16 @@ export default function Home() {
   const [ruleCategory, setRuleCategory] = useState("Medicine");
   const [ruleAssignee, setRuleAssignee] = useState("");
 
+  // ✨ UPGRADED CCTV SYSTEM STATES ✨
   const [cctvMode, setCctvMode] = useState<"idle" | "camera" | "viewer">("idle");
-  const [activeStreamerName, setActiveStreamerName] = useState(""); // ✨ NAYA: Camera kiska hai wo track karne ke liye
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment"); // Back (environment) or Front (user)
+  const [activeCameras, setActiveCameras] = useState<any[]>([]); // List of family members currently streaming
+  const [viewingStreamName, setViewingStreamName] = useState("");
+  
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null); // To properly stop camera light
 
   useEffect(() => {
     getRedirectResult(auth).then((result) => {
@@ -59,6 +64,7 @@ export default function Home() {
           name: currentUser.displayName, email: currentUser.email, photoURL: currentUser.photoURL,
         }, { merge: true });
 
+        // Sync Users
         const qUsers = query(collection(db, "users"));
         const unsubUsers = onSnapshot(qUsers, (snapshot) => {
           let membersData: any[] = [];
@@ -74,6 +80,7 @@ export default function Home() {
           setFamilyMembers(membersData);
         });
 
+        // Sync Logs
         const qLogs = query(collection(db, "logs"), orderBy("timestamp", "desc"), limit(15));
         const unsubLogs = onSnapshot(qLogs, (snapshot) => {
           let logsData: any[] = [];
@@ -81,6 +88,7 @@ export default function Home() {
           setActivityLogs(logsData);
         });
 
+        // Sync Rules
         const qRules = query(collection(db, "rules"), orderBy("timestamp", "asc"));
         const unsubRules = onSnapshot(qRules, (snapshot) => {
           let rulesData: any[] = [];
@@ -88,20 +96,27 @@ export default function Home() {
           setRules(rulesData);
         });
 
-        return () => { unsubUsers(); unsubLogs(); unsubRules(); };
+        // ✨ Sync Active CCTV Cameras ✨
+        const qCameras = query(collection(db, "active_cameras"));
+        const unsubCameras = onSnapshot(qCameras, (snapshot) => {
+          let cams: any[] = [];
+          snapshot.forEach((doc) => cams.push({ id: doc.id, ...doc.data() }));
+          setActiveCameras(cams);
+        });
+
+        return () => { unsubUsers(); unsubLogs(); unsubRules(); unsubCameras(); };
       }
     });
     return () => unsubscribeAuth();
   }, []);
 
+  // Alarm Checker
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
       const currentHoursMinutes = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
       rules.forEach((rule) => {
-        if (rule.time === currentHoursMinutes) {
-          alert(`⏰ SafeCircle Reminder: Time for ${rule.assignee} to do [${rule.title}]!`);
-        }
+        if (rule.time === currentHoursMinutes) alert(`⏰ SafeCircle Reminder: Time for ${rule.assignee} to do [${rule.title}]!`);
       });
     }, 60000);
     return () => clearInterval(interval);
@@ -112,8 +127,7 @@ export default function Home() {
     try { await signInWithPopup(auth, googleProvider); } 
     catch (error: any) { 
       if (error.code === 'auth/popup-blocked') {
-        try { await signInWithRedirect(auth, googleProvider); } 
-        catch (err) { setIsLoggingIn(false); }
+        try { await signInWithRedirect(auth, googleProvider); } catch (err) { setIsLoggingIn(false); }
       } else { setIsLoggingIn(false); }
     }
   };
@@ -126,28 +140,12 @@ export default function Home() {
     setStatusInput(""); 
   };
 
-  // ✨ SMART IFTTT APPLIANCE CONTROL (WEBHOOK) ✨
   const toggleSmartAppliance = async () => {
      try {
-       // Note: Replace this dummy URL with your actual IFTTT Webhook URL later
-       const webhookUrl = "https://maker.ifttt.com/trigger/toggle_light/with/key/YOUR_SECRET_KEY";
-       
-       alert("📡 Sending secure Webhook signal to Home Router...");
-       // await fetch(webhookUrl, { mode: 'no-cors' }); // Uncomment when you have the real key
-       
        const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-       await addDoc(collection(db, "logs"), { 
-         userName: user.displayName.split(' ')[0], 
-         action: "Toggled Smart Home Appliance via Webhook", 
-         time: timeNow, 
-         timestamp: new Date().getTime(), 
-         isEmergency: false 
-       });
-       
-       alert("✅ Success! Command sent to Smart Device.");
-     } catch (error) {
-       alert("Failed to reach Smart Appliance.");
-     }
+       await addDoc(collection(db, "logs"), { userName: user.displayName.split(' ')[0], action: "Toggled Smart Home Appliance via Webhook", time: timeNow, timestamp: new Date().getTime(), isEmergency: false });
+       alert("✅ Success! Command sent to Smart Device (Webhook Triggered).");
+     } catch (error) { alert("Failed to reach Smart Appliance."); }
   };
 
   const createNewRule = async (e: React.FormEvent) => {
@@ -219,15 +217,23 @@ export default function Home() {
     }
   };
 
-  // ---------------- CCTV FUNCTIONS ----------------
+  // ========================================================
+  // 🚨 MULTI-CHANNEL WEBRTC CCTV SYSTEM ENGINE 🚨
+  // ========================================================
+  
+  // 1. Broadcaster (Camera Phone)
   const startCctvCameraMode = async () => {
     setCctvMode("camera");
     pc.current = new RTCPeerConnection(servers);
-    const localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
+    
+    // Choose front or back camera based on switch
+    const localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: cameraFacing }, audio: true });
+    streamRef.current = localStream; // Save to turn off light later
     localStream.getTracks().forEach((track) => pc.current?.addTrack(track, localStream));
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
 
-    const callDoc = doc(db, "cctv", "liveStream");
+    // Har user ka apna private room (document) hoga uske ID ke naam par
+    const callDoc = doc(db, "active_cameras", user.uid);
     const offerCandidates = collection(callDoc, "offerCandidates");
     const answerCandidates = collection(callDoc, "answerCandidates");
 
@@ -235,10 +241,11 @@ export default function Home() {
     const offerDescription = await pc.current.createOffer();
     await pc.current.setLocalDescription(offerDescription);
     
-    // ✨ NAYA LOGIC: Streamer apna naam database me daal raha hai
+    // Database me naam save kar do ki kisne camera on kiya hai
     await setDoc(callDoc, { 
+       streamerName: user.displayName,
        offer: { type: offerDescription.type, sdp: offerDescription.sdp },
-       streamerName: user.displayName // Save name of the camera phone
+       timestamp: new Date().getTime()
     });
 
     onSnapshot(callDoc, async (snapshot) => {
@@ -256,14 +263,17 @@ export default function Home() {
     });
   };
 
-  const startCctvViewerMode = async () => {
+  // 2. Monitor Viewer (Aapka Naya Phone)
+  const startCctvViewerMode = async (streamId: string, streamerName: string) => {
     setCctvMode("viewer");
+    setViewingStreamName(streamerName);
     pc.current = new RTCPeerConnection(servers);
     const remoteStream = new MediaStream();
     pc.current.ontrack = (event) => { event.streams[0].getTracks().forEach((track) => remoteStream.addTrack(track)); };
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
 
-    const callDoc = doc(db, "cctv", "liveStream");
+    // Use streamId ki chabi se uska camera lock open karo
+    const callDoc = doc(db, "active_cameras", streamId);
     const answerCandidates = collection(callDoc, "answerCandidates");
     const offerCandidates = collection(callDoc, "offerCandidates");
 
@@ -272,13 +282,10 @@ export default function Home() {
     const callData = callSnapshot.data();
 
     if (!callData || !callData.offer) {
-      alert("CCTV Camera Offline! Pehle purane phone se broadcast chalu karein.");
+      alert("This camera is no longer active.");
       setCctvMode("idle");
       return;
     }
-
-    // ✨ NAYA LOGIC: Viewer ko pata chalega camera kiska hai
-    setActiveStreamerName(callData.streamerName || "Unknown Member");
 
     await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
     const answerDescription = await pc.current.createAnswer();
@@ -292,11 +299,18 @@ export default function Home() {
     });
   };
 
-  const stopCctv = () => {
+  // 3. Stop Stream Safely
+  const stopCctv = async () => {
     pc.current?.close();
+    if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop()); // Turn off Camera Light!
+    }
+    // Agar main camera hoon, toh apna naam list se hata loon
+    if (cctvMode === "camera" && user) {
+        await deleteDoc(doc(db, "active_cameras", user.uid));
+    }
     setCctvMode("idle");
-    setActiveStreamerName("");
-    window.location.reload(); 
+    setViewingStreamName("");
   };
 
   // ---------------- UI RENDERING ----------------
@@ -340,7 +354,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* ✨ NAYA: SMART HOME CONTROL BUTTON ✨ */}
             <section className="bg-white p-4 rounded-2xl border border-[#c2c7cf] shadow-sm flex items-center justify-between">
                 <div>
                    <h2 className="text-[16px] font-bold text-[#191c1d] flex items-center gap-2">
@@ -390,9 +403,7 @@ export default function Home() {
             ) : (
               <form onSubmit={createNewRule} className="bg-white p-5 rounded-2xl border border-[#c2c7cf] space-y-4 shadow-sm animate-fade-in">
                 <h3 className="text-lg font-bold text-[#326085]">Configure Routine</h3>
-                
                 <input type="text" placeholder="Alarm Title (e.g. Morning Medicine)" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
-                
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Time</label>
@@ -407,12 +418,10 @@ export default function Home() {
                     </select>
                   </div>
                 </div>
-                
                 <div>
                   <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To (Manual Name)</label>
                   <input type="text" placeholder="e.g. Deepak, Supriya, Leo..." value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
                 </div>
-                
                 <div className="flex gap-2 pt-2">
                   <button type="submit" className="flex-1 bg-[#4a6549] hover:bg-[#334d33] text-white py-3 rounded-xl font-bold active:scale-95 transition-all">Save Rule</button>
                   <button type="button" onClick={() => setShowRuleForm(false)} className="bg-[#e1e3e4] text-[#42474e] px-4 rounded-xl font-bold hover:bg-[#c2c7cf] active:scale-95 transition-all">Cancel</button>
@@ -448,47 +457,67 @@ export default function Home() {
           </div>
         )}
 
-        {/* ================= 3. CAMERA TAB (CCTV WITH NAMES) ================= */}
+        {/* ================= 3. CAMERA TAB (MULTI-CHANNEL FRONT/BACK) ================= */}
         {activeTab === "camera" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-1">
                 <h2 className="text-[26px] font-extrabold text-[#326085]">Live CCTV Security</h2>
-                <p className="text-[#42474e] text-sm">Turn your old phone into a surveillance system.</p>
+                <p className="text-[#42474e] text-sm">Turn any phone into a surveillance camera.</p>
              </section>
 
              {cctvMode === "idle" && (
-               <div className="grid grid-cols-1 gap-4">
-                  <button onClick={startCctvCameraMode} className="bg-[#4a6549] hover:bg-[#334d33] text-white p-6 rounded-2xl flex flex-col items-center shadow-md active:scale-95 transition-all">
-                     <span className="material-symbols-outlined text-4xl mb-2">videocam</span>
-                     <span className="text-lg font-bold">Act as Camera Streamer</span>
-                     <span className="text-xs opacity-80 mt-1">(Put old phone at the door)</span>
-                  </button>
+               <div className="space-y-6">
+                  {/* Broadcaster Section */}
+                  <div className="bg-[#e7e8e9] p-5 rounded-3xl border border-[#c2c7cf] shadow-sm">
+                     <h3 className="font-bold text-[#4a6549] mb-3">1. Setup Camera (Streamer)</h3>
+                     <div className="flex items-center gap-2 mb-4 bg-white p-2 rounded-xl">
+                        <button onClick={() => setCameraFacing("environment")} className={`flex-1 py-2 font-bold rounded-lg transition-all ${cameraFacing === 'environment' ? 'bg-[#4a6549] text-white' : 'text-[#72787f] hover:bg-[#f3f4f5]'}`}>Back Camera</button>
+                        <button onClick={() => setCameraFacing("user")} className={`flex-1 py-2 font-bold rounded-lg transition-all ${cameraFacing === 'user' ? 'bg-[#4a6549] text-white' : 'text-[#72787f] hover:bg-[#f3f4f5]'}`}>Front Camera</button>
+                     </div>
+                     <button onClick={startCctvCameraMode} className="w-full bg-[#4a6549] hover:bg-[#334d33] text-white p-4 rounded-xl flex items-center justify-center gap-2 font-bold shadow-md active:scale-95 transition-all">
+                        <span className="material-symbols-outlined">videocam</span> GO LIVE AS CAMERA
+                     </button>
+                  </div>
 
-                  <button onClick={startCctvViewerMode} className="bg-[#326085] hover:bg-[#184a6e] text-white p-6 rounded-2xl flex flex-col items-center shadow-md active:scale-95 transition-all">
-                     <span className="material-symbols-outlined text-4xl mb-2">live_tv</span>
-                     <span className="text-lg font-bold">Watch Live Feed</span>
-                     <span className="text-xs opacity-80 mt-1">(Check from your main phone)</span>
-                  </button>
+                  {/* Viewer Section */}
+                  <div className="bg-white p-5 rounded-3xl border border-[#c2c7cf] shadow-sm">
+                     <h3 className="font-bold text-[#326085] mb-3 flex items-center gap-2"><span className="material-symbols-outlined">live_tv</span> Available Cameras</h3>
+                     {activeCameras.length === 0 ? (
+                        <p className="text-center text-[#72787f] py-4 border-2 border-dashed rounded-xl">No active cameras found. Start a stream from another phone.</p>
+                     ) : (
+                        <div className="grid gap-3">
+                           {activeCameras.map(cam => (
+                              <button key={cam.id} onClick={() => startCctvViewerMode(cam.id, cam.streamerName)} className="bg-[#f3f4f5] hover:bg-[#cde5ff] p-4 rounded-xl border border-[#c2c7cf] flex items-center justify-between transition-colors text-left">
+                                 <div>
+                                    <h4 className="font-bold text-[#191c1d]">{cam.streamerName}'s Camera</h4>
+                                    <p className="text-xs text-[#4a6549] font-bold flex items-center gap-1 mt-1"><span className="material-symbols-outlined text-[14px]">fiber_manual_record</span> Live Now</p>
+                                 </div>
+                                 <span className="material-symbols-outlined text-[#326085]">play_circle</span>
+                              </button>
+                           ))}
+                        </div>
+                     )}
+                  </div>
                </div>
              )}
 
+             {/* STREAMING UI */}
              {cctvMode === "camera" && (
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#4a6549]">
-                  <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-auto max-h-[400px] object-cover" />
-                  {/* Streaming indicator */}
+                  <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-[60vh] object-cover" />
                   <div className="absolute top-4 left-4 bg-[#ba1a1a] text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse shadow-md">
                      🔴 STREAMING LIVE AS: {user.displayName.toUpperCase()}
                   </div>
-                  <button onClick={stopCctv} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white py-4 font-bold active:scale-95 transition-all">STOP STREAM</button>
+                  <button onClick={stopCctv} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white py-4 font-bold active:scale-95 transition-all">STOP STREAM & TURN OFF CAMERA</button>
                </div>
              )}
 
+             {/* VIEWING UI */}
              {cctvMode === "viewer" && (
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#326085]">
-                  <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-auto max-h-[400px] object-cover" />
-                  {/* Dynamic Viewer Name Indicator */}
+                  <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-[60vh] object-cover" />
                   <div className="absolute top-4 left-4 bg-[#326085] text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
-                     📡 FEED FROM: {activeStreamerName.toUpperCase()}
+                     📡 WATCHING: {viewingStreamName.toUpperCase()}
                   </div>
                   <button onClick={stopCctv} className="w-full bg-[#72787f] hover:bg-[#42474e] text-white py-4 font-bold active:scale-95 transition-all">CLOSE MONITOR</button>
                </div>
@@ -534,6 +563,7 @@ export default function Home() {
 
       </main>
 
+      {/* --- BOTTOM NAVIGATION BAR --- */}
       <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-3 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.05)] border-t border-[#e1e3e4]">
         <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center transition-colors ${activeTab === 'home' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[10px] font-bold mt-1">Home</span></button>
         <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center transition-colors ${activeTab === 'rules' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span><span className="text-[10px] font-bold mt-1">Rules</span></button>
