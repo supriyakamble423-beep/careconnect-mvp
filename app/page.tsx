@@ -15,16 +15,12 @@ function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon
   return R * c; 
 }
 
-// WebRTC Public STUN Servers Connection Configurations
 const servers = {
-  iceServers: [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-  ],
+  iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
   iceCandidatePoolSize: 10,
 };
 
 export default function Home() {
-  // Common States
   const [user, setUser] = useState<any>(null);
   const [statusInput, setStatusInput] = useState("");
   const [myStatus, setMyStatus] = useState("Loading...");
@@ -34,26 +30,23 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("home");
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   
-  // Geofence & Wi-Fi States
   const [homeBaseLat, setHomeBaseLat] = useState<number | null>(null);
   const [homeBaseLon, setHomeBaseLon] = useState<number | null>(null);
   const [homeWiFiIP, setHomeWiFiIP] = useState<string | null>(null);
 
-  // ✨ RULES ENGINE STATES (Now supports Manual Names) ✨
   const [rules, setRules] = useState<any[]>([]);
   const [showRuleForm, setShowRuleForm] = useState(false);
   const [ruleTitle, setRuleTitle] = useState("");
   const [ruleTime, setRuleTime] = useState("");
   const [ruleCategory, setRuleCategory] = useState("Medicine");
-  const [ruleAssignee, setRuleAssignee] = useState(""); // Blank by default for manual typing
+  const [ruleAssignee, setRuleAssignee] = useState("");
 
-  // ✨ WEBRTC CCTV SYSTEM STATES ✨
   const [cctvMode, setCctvMode] = useState<"idle" | "camera" | "viewer">("idle");
+  const [activeStreamerName, setActiveStreamerName] = useState(""); // ✨ NAYA: Camera kiska hai wo track karne ke liye
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
 
-  // ---------------- FIREBASE SYNC ENGINE ----------------
   useEffect(() => {
     getRedirectResult(auth).then((result) => {
       if(result && result.user) setUser(result.user);
@@ -63,12 +56,9 @@ export default function Home() {
       if (currentUser) {
         setUser(currentUser);
         await setDoc(doc(db, "users", currentUser.uid), {
-          name: currentUser.displayName,
-          email: currentUser.email,
-          photoURL: currentUser.photoURL,
+          name: currentUser.displayName, email: currentUser.email, photoURL: currentUser.photoURL,
         }, { merge: true });
 
-        // 1. Live Members Sync
         const qUsers = query(collection(db, "users"));
         const unsubUsers = onSnapshot(qUsers, (snapshot) => {
           let membersData: any[] = [];
@@ -77,17 +67,13 @@ export default function Home() {
             membersData.push({ id: doc.id, ...data });
             if (doc.id === currentUser.uid) {
               if (data.status) setMyStatus(data.status);
-              if (data.homeLat && data.homeLon) {
-                setHomeBaseLat(data.homeLat);
-                setHomeBaseLon(data.homeLon);
-              }
+              if (data.homeLat && data.homeLon) { setHomeBaseLat(data.homeLat); setHomeBaseLon(data.homeLon); }
               if (data.homeRouterIP) setHomeWiFiIP(data.homeRouterIP);
             }
           });
           setFamilyMembers(membersData);
         });
 
-        // 2. Logs Sync
         const qLogs = query(collection(db, "logs"), orderBy("timestamp", "desc"), limit(15));
         const unsubLogs = onSnapshot(qLogs, (snapshot) => {
           let logsData: any[] = [];
@@ -95,7 +81,6 @@ export default function Home() {
           setActivityLogs(logsData);
         });
 
-        // 3. ✨ Rules Sync ✨
         const qRules = query(collection(db, "rules"), orderBy("timestamp", "asc"));
         const unsubRules = onSnapshot(qRules, (snapshot) => {
           let rulesData: any[] = [];
@@ -109,12 +94,10 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
 
-  // ✨ RULES ALARM BACKGROUND CHECKER ✨
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
       const currentHoursMinutes = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-      
       rules.forEach((rule) => {
         if (rule.time === currentHoursMinutes) {
           alert(`⏰ SafeCircle Reminder: Time for ${rule.assignee} to do [${rule.title}]!`);
@@ -124,7 +107,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [rules]);
 
-  // ---------------- CORE FUNCTIONS ----------------
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try { await signInWithPopup(auth, googleProvider); } 
@@ -144,43 +126,47 @@ export default function Home() {
     setStatusInput(""); 
   };
 
-  // ✨ RULES FUNCTIONS ✨
+  // ✨ SMART IFTTT APPLIANCE CONTROL (WEBHOOK) ✨
+  const toggleSmartAppliance = async () => {
+     try {
+       // Note: Replace this dummy URL with your actual IFTTT Webhook URL later
+       const webhookUrl = "https://maker.ifttt.com/trigger/toggle_light/with/key/YOUR_SECRET_KEY";
+       
+       alert("📡 Sending secure Webhook signal to Home Router...");
+       // await fetch(webhookUrl, { mode: 'no-cors' }); // Uncomment when you have the real key
+       
+       const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+       await addDoc(collection(db, "logs"), { 
+         userName: user.displayName.split(' ')[0], 
+         action: "Toggled Smart Home Appliance via Webhook", 
+         time: timeNow, 
+         timestamp: new Date().getTime(), 
+         isEmergency: false 
+       });
+       
+       alert("✅ Success! Command sent to Smart Device.");
+     } catch (error) {
+       alert("Failed to reach Smart Appliance.");
+     }
+  };
+
   const createNewRule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ruleTitle.trim() || !ruleTime || !ruleAssignee.trim()) return;
-    
-    await addDoc(collection(db, "rules"), {
-      title: ruleTitle, 
-      time: ruleTime, 
-      category: ruleCategory, 
-      assignee: ruleAssignee, 
-      timestamp: new Date().getTime()
-    });
-    
-    await addDoc(collection(db, "logs"), {
-      userName: user.displayName.split(' ')[0], 
-      action: `Created a new ${ruleCategory} rule: "${ruleTitle}" for ${ruleAssignee}`, 
-      time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 
-      timestamp: new Date().getTime(), 
-      isEmergency: false
-    });
-    
+    await addDoc(collection(db, "rules"), { title: ruleTitle, time: ruleTime, category: ruleCategory, assignee: ruleAssignee, timestamp: new Date().getTime() });
+    await addDoc(collection(db, "logs"), { userName: user.displayName.split(' ')[0], action: `Created a new ${ruleCategory} rule: "${ruleTitle}" for ${ruleAssignee}`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), timestamp: new Date().getTime(), isEmergency: false });
     setRuleTitle(""); setRuleTime(""); setRuleAssignee(""); setShowRuleForm(false);
   };
 
   const deleteRule = async (id: string, title: string) => {
-    if(confirm(`Delete rule "${title}"?`)) {
-      await deleteDoc(doc(db, "rules", id));
-    }
+    if(confirm(`Delete rule "${title}"?`)) await deleteDoc(doc(db, "rules", id));
   };
 
-  // ✨ INVITE LINK FUNCTION ✨
   const copyInviteLink = () => {
     navigator.clipboard.writeText("https://careconnect-mvp.vercel.app");
-    alert("App link copied! Send it to your family on WhatsApp so they can join instantly.");
+    alert("App link copied! Send it to your family on WhatsApp.");
   };
 
-  // ✨ NETWORK & GPS FUNCTIONS ✨
   const setHomeRouter = async () => {
     if (!user) return;
     try {
@@ -248,7 +234,12 @@ export default function Home() {
     pc.current.onicecandidate = (event) => { if (event.candidate) addDoc(offerCandidates, event.candidate.toJSON()); };
     const offerDescription = await pc.current.createOffer();
     await pc.current.setLocalDescription(offerDescription);
-    await setDoc(callDoc, { offer: { type: offerDescription.type, sdp: offerDescription.sdp } });
+    
+    // ✨ NAYA LOGIC: Streamer apna naam database me daal raha hai
+    await setDoc(callDoc, { 
+       offer: { type: offerDescription.type, sdp: offerDescription.sdp },
+       streamerName: user.displayName // Save name of the camera phone
+    });
 
     onSnapshot(callDoc, async (snapshot) => {
       const data = snapshot.data();
@@ -286,6 +277,9 @@ export default function Home() {
       return;
     }
 
+    // ✨ NAYA LOGIC: Viewer ko pata chalega camera kiska hai
+    setActiveStreamerName(callData.streamerName || "Unknown Member");
+
     await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
     const answerDescription = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answerDescription);
@@ -301,6 +295,7 @@ export default function Home() {
   const stopCctv = () => {
     pc.current?.close();
     setCctvMode("idle");
+    setActiveStreamerName("");
     window.location.reload(); 
   };
 
@@ -345,6 +340,19 @@ export default function Home() {
               </button>
             </div>
 
+            {/* ✨ NAYA: SMART HOME CONTROL BUTTON ✨ */}
+            <section className="bg-white p-4 rounded-2xl border border-[#c2c7cf] shadow-sm flex items-center justify-between">
+                <div>
+                   <h2 className="text-[16px] font-bold text-[#191c1d] flex items-center gap-2">
+                     <span className="material-symbols-outlined text-[#7f5221]">lightbulb</span> Smart Appliance
+                   </h2>
+                   <p className="text-xs text-[#72787f]">Toggle connected home devices</p>
+                </div>
+                <button onClick={toggleSmartAppliance} className="bg-[#7f5221] hover:bg-[#663d0e] text-white px-4 py-2 rounded-xl font-bold active:scale-95 transition-all shadow-sm">
+                   Trigger
+                </button>
+            </section>
+
             <section className="bg-white p-4 rounded-2xl border border-[#e1e3e4] shadow-sm">
                <h2 className="text-sm font-bold text-[#42474e] mb-3">Live Feed Status Map</h2>
                <div className="grid grid-cols-1 gap-4">
@@ -367,7 +375,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ================= 2. RULES TAB (MANUAL NAME ENTRY) ================= */}
+        {/* ================= 2. RULES TAB ================= */}
         {activeTab === "rules" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-2">
@@ -400,17 +408,9 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {/* ✨ MANUAL NAME INPUT FIELD ✨ */}
                 <div>
                   <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To (Manual Name)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. Deepak, Supriya, Leo..." 
-                    value={ruleAssignee} 
-                    onChange={(e) => setRuleAssignee(e.target.value)} 
-                    className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" 
-                    required 
-                  />
+                  <input type="text" placeholder="e.g. Deepak, Supriya, Leo..." value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
                 </div>
                 
                 <div className="flex gap-2 pt-2">
@@ -448,7 +448,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ================= 3. CAMERA TAB (CCTV) ================= */}
+        {/* ================= 3. CAMERA TAB (CCTV WITH NAMES) ================= */}
         {activeTab === "camera" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-1">
@@ -475,7 +475,10 @@ export default function Home() {
              {cctvMode === "camera" && (
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#4a6549]">
                   <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-auto max-h-[400px] object-cover" />
-                  <div className="absolute top-4 left-4 bg-[#ba1a1a] text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">🔴 LIVE</div>
+                  {/* Streaming indicator */}
+                  <div className="absolute top-4 left-4 bg-[#ba1a1a] text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse shadow-md">
+                     🔴 STREAMING LIVE AS: {user.displayName.toUpperCase()}
+                  </div>
                   <button onClick={stopCctv} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white py-4 font-bold active:scale-95 transition-all">STOP STREAM</button>
                </div>
              )}
@@ -483,7 +486,10 @@ export default function Home() {
              {cctvMode === "viewer" && (
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#326085]">
                   <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-auto max-h-[400px] object-cover" />
-                  <div className="absolute top-4 left-4 bg-[#326085] text-white px-3 py-1 rounded-full text-xs font-bold">📡 SECURE FEED</div>
+                  {/* Dynamic Viewer Name Indicator */}
+                  <div className="absolute top-4 left-4 bg-[#326085] text-white px-3 py-1 rounded-full text-xs font-bold shadow-md">
+                     📡 FEED FROM: {activeStreamerName.toUpperCase()}
+                  </div>
                   <button onClick={stopCctv} className="w-full bg-[#72787f] hover:bg-[#42474e] text-white py-4 font-bold active:scale-95 transition-all">CLOSE MONITOR</button>
                </div>
              )}
@@ -528,7 +534,6 @@ export default function Home() {
 
       </main>
 
-      {/* --- BOTTOM NAVIGATION BAR --- */}
       <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-3 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.05)] border-t border-[#e1e3e4]">
         <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center transition-colors ${activeTab === 'home' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[10px] font-bold mt-1">Home</span></button>
         <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center transition-colors ${activeTab === 'rules' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span><span className="text-[10px] font-bold mt-1">Rules</span></button>
