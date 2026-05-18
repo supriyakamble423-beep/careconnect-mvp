@@ -1,4 +1,3 @@
-// Path: components/ui/rainbow-button.tsx
 "use client";
 
 import React from 'react';
