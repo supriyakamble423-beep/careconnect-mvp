@@ -123,12 +123,14 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [rules]);
 
+  // ✨ FIXES HERE: Sahi catch block lagaya hai ab
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try { await signInWithPopup(auth, googleProvider); } 
     catch (error: any) { 
       if (error.code === 'auth/popup-blocked') {
-        try { await signInWithRedirect(auth, googleProvider); } bookkeeping { setIsLoggingIn(false); }
+        try { await signInWithRedirect(auth, googleProvider); } 
+        catch (err) { setIsLoggingIn(false); }
       } else { setIsLoggingIn(false); }
     }
   };
@@ -138,7 +140,6 @@ export default function Home() {
     const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     await setDoc(doc(db, "users", user.uid), { status: newStatus, lastUpdated: timeNow, lat: null, lon: null }, { merge: true });
     
-    // ✨ Safe checking added for displayName
     const shortName = (user?.displayName || "User").split(' ')[0];
     await addDoc(collection(db, "logs"), { userName: shortName, action: newStatus, time: timeNow, timestamp: new Date().getTime(), isEmergency: newStatus.includes("EMERGENCY") });
     setStatusInput(""); 
@@ -158,7 +159,6 @@ export default function Home() {
     if (!ruleTitle.trim() || !ruleTime || !ruleAssignee.trim()) return;
     await addDoc(collection(db, "rules"), { title: ruleTitle, time: ruleTime, category: ruleCategory, assignee: ruleAssignee, timestamp: new Date().getTime() });
     
-    // ✨ Safe checking added for displayName
     const shortName = (user?.displayName || "User").split(' ')[0];
     await addDoc(collection(db, "logs"), { userName: shortName, action: `Created a new ${ruleCategory} rule: "${ruleTitle}" for ${ruleAssignee}`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), timestamp: new Date().getTime(), isEmergency: false });
     setRuleTitle(""); setRuleTime(""); setRuleAssignee(""); setShowRuleForm(false);
@@ -226,7 +226,6 @@ export default function Home() {
     }
   };
 
-  // ---------------- CCTV FUNCTIONS ----------------
   const startCctvCameraMode = async () => {
     setCctvMode("camera");
     pc.current = new RTCPeerConnection(servers);
