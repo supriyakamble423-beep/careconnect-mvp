@@ -5,7 +5,7 @@ import { signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChan
 import { doc, setDoc, onSnapshot, collection, query, addDoc, orderBy, limit, deleteDoc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "../lib/firebase";
 
-// ✨ UI COMPONENTS IMPORT (Shadcn + Custom) ✨
+// UI COMPONENTS IMPORT
 import { ThemeToggle } from "./components/ui/curtain-theme-toggle";
 import { RainbowButton } from "./components/ui/rainbow-button";
 
@@ -65,7 +65,9 @@ export default function Home() {
       if (currentUser) {
         setUser(currentUser);
         await setDoc(doc(db, "users", currentUser.uid), {
-          name: currentUser.displayName, email: currentUser.email, photoURL: currentUser.photoURL,
+          name: currentUser.displayName || "User", 
+          email: currentUser.email, 
+          photoURL: currentUser.photoURL,
         }, { merge: true });
 
         const qUsers = query(collection(db, "users"));
@@ -126,7 +128,7 @@ export default function Home() {
     try { await signInWithPopup(auth, googleProvider); } 
     catch (error: any) { 
       if (error.code === 'auth/popup-blocked') {
-        try { await signInWithRedirect(auth, googleProvider); } catch (err) { setIsLoggingIn(false); }
+        try { await signInWithRedirect(auth, googleProvider); } bookkeeping { setIsLoggingIn(false); }
       } else { setIsLoggingIn(false); }
     }
   };
@@ -135,14 +137,18 @@ export default function Home() {
     if (!newStatus.trim() || !user) return;
     const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     await setDoc(doc(db, "users", user.uid), { status: newStatus, lastUpdated: timeNow, lat: null, lon: null }, { merge: true });
-    await addDoc(collection(db, "logs"), { userName: user.displayName.split(' ')[0], action: newStatus, time: timeNow, timestamp: new Date().getTime(), isEmergency: newStatus.includes("EMERGENCY") });
+    
+    // ✨ Safe checking added for displayName
+    const shortName = (user?.displayName || "User").split(' ')[0];
+    await addDoc(collection(db, "logs"), { userName: shortName, action: newStatus, time: timeNow, timestamp: new Date().getTime(), isEmergency: newStatus.includes("EMERGENCY") });
     setStatusInput(""); 
   };
 
   const toggleSmartAppliance = async () => {
      try {
        const timeNow = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-       await addDoc(collection(db, "logs"), { userName: user.displayName.split(' ')[0], action: "Toggled Smart Home Appliance via Webhook", time: timeNow, timestamp: new Date().getTime(), isEmergency: false });
+       const shortName = (user?.displayName || "User").split(' ')[0];
+       await addDoc(collection(db, "logs"), { userName: shortName, action: "Toggled Smart Home Appliance via Webhook", time: timeNow, timestamp: new Date().getTime(), isEmergency: false });
        alert("✅ Success! Command sent to Smart Device (Webhook Triggered).");
      } catch (error) { alert("Failed to reach Smart Appliance."); }
   };
@@ -151,7 +157,10 @@ export default function Home() {
     e.preventDefault();
     if (!ruleTitle.trim() || !ruleTime || !ruleAssignee.trim()) return;
     await addDoc(collection(db, "rules"), { title: ruleTitle, time: ruleTime, category: ruleCategory, assignee: ruleAssignee, timestamp: new Date().getTime() });
-    await addDoc(collection(db, "logs"), { userName: user.displayName.split(' ')[0], action: `Created a new ${ruleCategory} rule: "${ruleTitle}" for ${ruleAssignee}`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), timestamp: new Date().getTime(), isEmergency: false });
+    
+    // ✨ Safe checking added for displayName
+    const shortName = (user?.displayName || "User").split(' ')[0];
+    await addDoc(collection(db, "logs"), { userName: shortName, action: `Created a new ${ruleCategory} rule: "${ruleTitle}" for ${ruleAssignee}`, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), timestamp: new Date().getTime(), isEmergency: false });
     setRuleTitle(""); setRuleTime(""); setRuleAssignee(""); setShowRuleForm(false);
   };
 
@@ -210,7 +219,8 @@ export default function Home() {
            else { geofenceStatus = "✅ Inside GPS Home Zone"; }
         }
         await setDoc(doc(db, "users", user.uid), { status: geofenceStatus, lat: position.coords.latitude, lon: position.coords.longitude, lastUpdated: timeNow }, { merge: true });
-        await addDoc(collection(db, "logs"), { userName: user.displayName.split(' ')[0], action: geofenceStatus, time: timeNow, timestamp: new Date().getTime(), isEmergency: isEmergency });
+        const shortName = (user?.displayName || "User").split(' ')[0];
+        await addDoc(collection(db, "logs"), { userName: shortName, action: geofenceStatus, time: timeNow, timestamp: new Date().getTime(), isEmergency: isEmergency });
         setIsGettingLocation(false);
       });
     }
@@ -235,7 +245,7 @@ export default function Home() {
     await pc.current.setLocalDescription(offerDescription);
     
     await setDoc(callDoc, { 
-       streamerName: user.displayName,
+       streamerName: user.displayName || "Unknown Camera",
        offer: { type: offerDescription.type, sdp: offerDescription.sdp },
        timestamp: new Date().getTime()
     });
@@ -301,7 +311,6 @@ export default function Home() {
     setViewingStreamName("");
   };
 
-  // ---------------- UI RENDERING ----------------
   if (!user) {
     return (
       <div className="min-h-screen bg-[#f8f9fa] flex flex-col items-center justify-center p-4">
@@ -395,11 +404,11 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-[#72787f] dark:text-gray-400 mb-1 ml-1">Time</label>
-                    <input type="time" value={ruleTime} onChange={(e) => setRuleTime(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-2 outline-none focus:border-[#326085] dark:text-white" required />
+                    <input type="time" value={ruleTime} onChange={(e) => setRuleTime(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-2 outline-none focus:border-[#326085] dark:text-white" required />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-[#72787f] dark:text-gray-400 mb-1 ml-1">Category</label>
-                    <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-2 outline-none focus:border-[#326085] dark:text-white">
+                    <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-2 outline-none focus:border-[#326085] dark:text-white">
                       <option value="Medicine">Medicine</option>
                       <option value="Prayer">Prayer</option>
                       <option value="Activity">Activity</option>
@@ -408,7 +417,7 @@ export default function Home() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-[#72787f] dark:text-gray-400 mb-1 ml-1">Assign To (Manual Name)</label>
-                  <input type="text" placeholder="e.g. Deepak, Supriya, Leo..." value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-3 outline-none focus:border-[#326085] dark:text-white" required />
+                  <input type="text" placeholder="e.g. Deepak, Supriya, Leo..." value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-3 outline-none focus:border-[#326085] dark:text-white" required />
                 </div>
                 <div className="flex gap-2 pt-2">
                   <button type="submit" className="flex-1 bg-[#4a6549] hover:bg-[#334d33] text-white py-3 rounded-xl font-bold active:scale-95 transition-all">Save Rule</button>
@@ -491,7 +500,7 @@ export default function Home() {
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#4a6549]">
                   <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-[60vh] object-cover" />
                   <div className="absolute top-4 left-4 bg-[#ba1a1a] text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse shadow-md">
-                     🔴 STREAMING LIVE AS: {user.displayName.toUpperCase()}
+                     🔴 STREAMING LIVE AS: {user.displayName ? user.displayName.toUpperCase() : "USER"}
                   </div>
                   <button onClick={stopCctv} className="w-full bg-[#ba1a1a] hover:bg-[#93000a] text-white py-4 font-bold active:scale-95 transition-all">STOP STREAM & TURN OFF CAMERA</button>
                </div>
@@ -512,14 +521,14 @@ export default function Home() {
         {/* ================= 4. SETUP TAB ================= */}
         {activeTab === "setup" && (
           <div className="space-y-6 animate-fade-in">
-            <section className="bg-white dark:bg-[#1a1a1a] p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm transition-colors">
+            <section className="bg-white p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm transition-colors">
                 <h3 className="text-lg font-bold text-[#326085] dark:text-[#9fcbf5]">Network & Geofence</h3>
                 <button onClick={setHomeRouter} className="w-full h-[52px] bg-[#326085] hover:bg-[#184a6e] text-white font-bold rounded-xl active:scale-95 transition-all">Register Home Wi-Fi IP</button>
                 <button onClick={setHomeBase} className="w-full h-[52px] bg-[#7f5221] hover:bg-[#663d0e] text-white font-bold rounded-xl active:scale-95 transition-all">Set GPS Home Area</button>
             </section>
             
-            {/* ✨ NAYA: UI THEME & GOD MODE COMPONENTS ✨ */}
-            <section className="bg-white dark:bg-[#1a1a1a] p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm relative overflow-hidden transition-colors">
+            {/* UI THEME & GOD MODE COMPONENTS */}
+            <section className="bg-white p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm relative overflow-hidden transition-colors">
                 <h3 className="text-lg font-bold text-[#326085] dark:text-[#9fcbf5]">App Preferences</h3>
                 
                 <div className="flex flex-col gap-4 items-center justify-center py-4">
@@ -529,7 +538,7 @@ export default function Home() {
 
                 <div className="flex flex-col gap-4 items-center justify-center pt-6 border-t border-[#c2c7cf] dark:border-gray-700">
                     <p className="text-sm font-bold text-gray-500 dark:text-gray-400">Special Action</p>
-                    <RainbowButton onClick={() => alert("God Mode Activated! Welcome to the Matrix, Deepak.")}>
+                    <RainbowButton onClick={() => alert("God Mode Activated! Welcome to the Matrix.")}>
                        Activate God Mode
                     </RainbowButton>
                 </div>
@@ -553,7 +562,7 @@ export default function Home() {
           <div className="space-y-4 animate-fade-in">
              <h2 className="text-[28px] font-extrabold text-[#191c1d] dark:text-[#dfd8c6]">Activity Logs</h2>
              {activityLogs.map((log) => (
-                <div key={log.id} className={`bg-white dark:bg-[#1a1a1a] p-4 rounded-xl border text-sm shadow-sm transition-colors ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/20 dark:bg-[#93000a]/20' : 'border-[#e1e3e4] dark:border-white/10'}`}>
+                <div key={log.id} className={`bg-white p-4 rounded-xl border text-sm shadow-sm transition-colors ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/20 dark:bg-[#93000a]/20' : 'border-[#e1e3e4] dark:border-white/10'}`}>
                    <div className="flex justify-between font-bold text-[#191c1d] dark:text-white"><span>{log.userName}</span><span className="text-xs text-[#72787f] dark:text-gray-400">{log.time}</span></div>
                    <p className={`mt-1 font-medium ${log.isEmergency ? 'text-[#ba1a1a]' : 'text-[#42474e] dark:text-gray-300'}`}>{log.action}</p>
                 </div>
