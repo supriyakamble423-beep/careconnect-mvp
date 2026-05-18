@@ -5,6 +5,10 @@ import { signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChan
 import { doc, setDoc, onSnapshot, collection, query, addDoc, orderBy, limit, deleteDoc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "../lib/firebase";
 
+// ✨ UI COMPONENTS IMPORT (Shadcn + Custom) ✨
+import { ThemeToggle } from "./components/ui/curtain-theme-toggle";
+import { RainbowButton } from "./components/ui/rainbow-button";
+
 // Haversine Formula for Geofencing
 function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371; 
@@ -41,16 +45,16 @@ export default function Home() {
   const [ruleCategory, setRuleCategory] = useState("Medicine");
   const [ruleAssignee, setRuleAssignee] = useState("");
 
-  // ✨ UPGRADED CCTV SYSTEM STATES ✨
+  // UPGRADED CCTV SYSTEM STATES
   const [cctvMode, setCctvMode] = useState<"idle" | "camera" | "viewer">("idle");
-  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment"); // Back (environment) or Front (user)
-  const [activeCameras, setActiveCameras] = useState<any[]>([]); // List of family members currently streaming
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
+  const [activeCameras, setActiveCameras] = useState<any[]>([]);
   const [viewingStreamName, setViewingStreamName] = useState("");
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pc = useRef<RTCPeerConnection | null>(null);
-  const streamRef = useRef<MediaStream | null>(null); // To properly stop camera light
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     getRedirectResult(auth).then((result) => {
@@ -64,7 +68,6 @@ export default function Home() {
           name: currentUser.displayName, email: currentUser.email, photoURL: currentUser.photoURL,
         }, { merge: true });
 
-        // Sync Users
         const qUsers = query(collection(db, "users"));
         const unsubUsers = onSnapshot(qUsers, (snapshot) => {
           let membersData: any[] = [];
@@ -80,7 +83,6 @@ export default function Home() {
           setFamilyMembers(membersData);
         });
 
-        // Sync Logs
         const qLogs = query(collection(db, "logs"), orderBy("timestamp", "desc"), limit(15));
         const unsubLogs = onSnapshot(qLogs, (snapshot) => {
           let logsData: any[] = [];
@@ -88,7 +90,6 @@ export default function Home() {
           setActivityLogs(logsData);
         });
 
-        // Sync Rules
         const qRules = query(collection(db, "rules"), orderBy("timestamp", "asc"));
         const unsubRules = onSnapshot(qRules, (snapshot) => {
           let rulesData: any[] = [];
@@ -96,7 +97,6 @@ export default function Home() {
           setRules(rulesData);
         });
 
-        // ✨ Sync Active CCTV Cameras ✨
         const qCameras = query(collection(db, "active_cameras"));
         const unsubCameras = onSnapshot(qCameras, (snapshot) => {
           let cams: any[] = [];
@@ -110,7 +110,6 @@ export default function Home() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Alarm Checker
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
@@ -217,22 +216,16 @@ export default function Home() {
     }
   };
 
-  // ========================================================
-  // 🚨 MULTI-CHANNEL WEBRTC CCTV SYSTEM ENGINE 🚨
-  // ========================================================
-  
-  // 1. Broadcaster (Camera Phone)
+  // ---------------- CCTV FUNCTIONS ----------------
   const startCctvCameraMode = async () => {
     setCctvMode("camera");
     pc.current = new RTCPeerConnection(servers);
     
-    // Choose front or back camera based on switch
     const localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: cameraFacing }, audio: true });
-    streamRef.current = localStream; // Save to turn off light later
+    streamRef.current = localStream;
     localStream.getTracks().forEach((track) => pc.current?.addTrack(track, localStream));
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
 
-    // Har user ka apna private room (document) hoga uske ID ke naam par
     const callDoc = doc(db, "active_cameras", user.uid);
     const offerCandidates = collection(callDoc, "offerCandidates");
     const answerCandidates = collection(callDoc, "answerCandidates");
@@ -241,7 +234,6 @@ export default function Home() {
     const offerDescription = await pc.current.createOffer();
     await pc.current.setLocalDescription(offerDescription);
     
-    // Database me naam save kar do ki kisne camera on kiya hai
     await setDoc(callDoc, { 
        streamerName: user.displayName,
        offer: { type: offerDescription.type, sdp: offerDescription.sdp },
@@ -263,7 +255,6 @@ export default function Home() {
     });
   };
 
-  // 2. Monitor Viewer (Aapka Naya Phone)
   const startCctvViewerMode = async (streamId: string, streamerName: string) => {
     setCctvMode("viewer");
     setViewingStreamName(streamerName);
@@ -272,7 +263,6 @@ export default function Home() {
     pc.current.ontrack = (event) => { event.streams[0].getTracks().forEach((track) => remoteStream.addTrack(track)); };
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
 
-    // Use streamId ki chabi se uska camera lock open karo
     const callDoc = doc(db, "active_cameras", streamId);
     const answerCandidates = collection(callDoc, "answerCandidates");
     const offerCandidates = collection(callDoc, "offerCandidates");
@@ -299,13 +289,11 @@ export default function Home() {
     });
   };
 
-  // 3. Stop Stream Safely
   const stopCctv = async () => {
     pc.current?.close();
     if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop()); // Turn off Camera Light!
+        streamRef.current.getTracks().forEach(track => track.stop());
     }
-    // Agar main camera hoon, toh apna naam list se hata loon
     if (cctvMode === "camera" && user) {
         await deleteDoc(doc(db, "active_cameras", user.uid));
     }
@@ -331,10 +319,10 @@ export default function Home() {
   }
 
   return (
-    <div className="bg-[#f8f9fa] text-[#191c1d] min-h-screen pb-32 font-[Atkinson Hyperlegible Next]">
-      <header className="w-full top-0 sticky z-40 bg-[#f8f9fa] shadow-sm border-b border-[#e1e3e4]">
+    <div className="bg-[#f8f9fa] dark:bg-[#0e0e0e] text-[#191c1d] dark:text-[#dfd8c6] min-h-screen pb-32 font-[Atkinson Hyperlegible Next] transition-colors duration-300">
+      <header className="w-full top-0 sticky z-40 bg-[#f8f9fa] dark:bg-[#1a1a1a] shadow-sm border-b border-[#e1e3e4] dark:border-white/10 transition-colors duration-300">
         <div className="flex justify-between items-center px-5 py-3 max-w-2xl mx-auto">
-          <h1 className="text-[22px] font-extrabold text-[#326085]">SafeCircle</h1>
+          <h1 className="text-[22px] font-extrabold text-[#326085] dark:text-[#dfd8c6]">SafeCircle</h1>
           <button onClick={() => signOut(auth)} className="text-[#ba1a1a] font-bold text-sm active:scale-95 transition-all">Logout</button>
         </div>
       </header>
@@ -354,30 +342,30 @@ export default function Home() {
               </button>
             </div>
 
-            <section className="bg-white p-4 rounded-2xl border border-[#c2c7cf] shadow-sm flex items-center justify-between">
+            <section className="bg-white dark:bg-[#1a1a1a] p-4 rounded-2xl border border-[#c2c7cf] dark:border-white/10 shadow-sm flex items-center justify-between transition-colors">
                 <div>
-                   <h2 className="text-[16px] font-bold text-[#191c1d] flex items-center gap-2">
-                     <span className="material-symbols-outlined text-[#7f5221]">lightbulb</span> Smart Appliance
+                   <h2 className="text-[16px] font-bold text-[#191c1d] dark:text-[#dfd8c6] flex items-center gap-2">
+                     <span className="material-symbols-outlined text-[#7f5221] dark:text-[#f7ba80]">lightbulb</span> Smart Appliance
                    </h2>
-                   <p className="text-xs text-[#72787f]">Toggle connected home devices</p>
+                   <p className="text-xs text-[#72787f] dark:text-gray-400">Toggle connected home devices</p>
                 </div>
                 <button onClick={toggleSmartAppliance} className="bg-[#7f5221] hover:bg-[#663d0e] text-white px-4 py-2 rounded-xl font-bold active:scale-95 transition-all shadow-sm">
                    Trigger
                 </button>
             </section>
 
-            <section className="bg-white p-4 rounded-2xl border border-[#e1e3e4] shadow-sm">
-               <h2 className="text-sm font-bold text-[#42474e] mb-3">Live Feed Status Map</h2>
+            <section className="bg-white dark:bg-[#1a1a1a] p-4 rounded-2xl border border-[#e1e3e4] dark:border-white/10 shadow-sm transition-colors">
+               <h2 className="text-sm font-bold text-[#42474e] dark:text-gray-300 mb-3">Live Feed Status Map</h2>
                <div className="grid grid-cols-1 gap-4">
                 {familyMembers.map((member) => (
-                  <div key={member.id} className={`p-4 rounded-2xl border flex flex-col gap-2 ${member.status?.includes("SAFE ZONE") || member.status?.includes("EMERGENCY") ? "border-[#ba1a1a] bg-[#ffdad6]/40" : "border-[#e1e3e4]"}`}>
+                  <div key={member.id} className={`p-4 rounded-2xl border flex flex-col gap-2 transition-colors ${member.status?.includes("SAFE ZONE") || member.status?.includes("EMERGENCY") ? "border-[#ba1a1a] bg-[#ffdad6]/40 dark:bg-[#93000a]/20" : "border-[#e1e3e4] dark:border-white/10"}`}>
                     <div className="flex justify-between items-center">
-                      <span className="font-bold text-md">{member.name}</span>
-                      <span className="text-xs text-[#72787f]">{member.lastUpdated}</span>
+                      <span className="font-bold text-md dark:text-[#dfd8c6]">{member.name}</span>
+                      <span className="text-xs text-[#72787f] dark:text-gray-400">{member.lastUpdated}</span>
                     </div>
-                    <p className="text-sm font-medium text-[#42474e]">{member.status || "Active Online"}</p>
+                    <p className="text-sm font-medium text-[#42474e] dark:text-gray-300">{member.status || "Active Online"}</p>
                     {member.lat && member.lon && (
-                      <div className="w-full h-40 rounded-xl overflow-hidden border mt-2">
+                      <div className="w-full h-40 rounded-xl overflow-hidden border mt-2 dark:border-white/10">
                         <iframe width="100%" height="100%" frameBorder="0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${member.lon-0.003},${member.lat-0.003},${member.lon+0.003},${member.lat+0.003}&layer=mapnik&marker=${member.lat},${member.lon}`}></iframe>
                       </div>
                     )}
@@ -392,8 +380,8 @@ export default function Home() {
         {activeTab === "rules" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-2">
-                <h2 className="text-[28px] font-extrabold text-[#191c1d]">Rules & Reminders</h2>
-                <p className="text-[#42474e]">Schedule daily routines for the family.</p>
+                <h2 className="text-[28px] font-extrabold text-[#191c1d] dark:text-[#dfd8c6]">Rules & Reminders</h2>
+                <p className="text-[#42474e] dark:text-gray-400">Schedule daily routines for the family.</p>
             </section>
 
             {!showRuleForm ? (
@@ -401,17 +389,17 @@ export default function Home() {
                 <span className="material-symbols-outlined">add_circle</span> Create New Alarm Schedule
               </button>
             ) : (
-              <form onSubmit={createNewRule} className="bg-white p-5 rounded-2xl border border-[#c2c7cf] space-y-4 shadow-sm animate-fade-in">
-                <h3 className="text-lg font-bold text-[#326085]">Configure Routine</h3>
-                <input type="text" placeholder="Alarm Title (e.g. Morning Medicine)" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
+              <form onSubmit={createNewRule} className="bg-white dark:bg-[#1a1a1a] p-5 rounded-2xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm animate-fade-in transition-colors">
+                <h3 className="text-lg font-bold text-[#326085] dark:text-[#9fcbf5]">Configure Routine</h3>
+                <input type="text" placeholder="Alarm Title (e.g. Morning Medicine)" value={ruleTitle} onChange={(e) => setRuleTitle(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-3 outline-none focus:border-[#326085] dark:text-white" required />
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Time</label>
-                    <input type="time" value={ruleTime} onChange={(e) => setRuleTime(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]" required />
+                    <label className="block text-xs font-bold text-[#72787f] dark:text-gray-400 mb-1 ml-1">Time</label>
+                    <input type="time" value={ruleTime} onChange={(e) => setRuleTime(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-2 outline-none focus:border-[#326085] dark:text-white" required />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Category</label>
-                    <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-2 outline-none focus:border-[#326085]">
+                    <label className="block text-xs font-bold text-[#72787f] dark:text-gray-400 mb-1 ml-1">Category</label>
+                    <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-2 outline-none focus:border-[#326085] dark:text-white">
                       <option value="Medicine">Medicine</option>
                       <option value="Prayer">Prayer</option>
                       <option value="Activity">Activity</option>
@@ -419,34 +407,34 @@ export default function Home() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#72787f] mb-1 ml-1">Assign To (Manual Name)</label>
-                  <input type="text" placeholder="e.g. Deepak, Supriya, Leo..." value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] border border-[#c2c7cf] rounded-xl px-4 py-3 outline-none focus:border-[#326085]" required />
+                  <label className="block text-xs font-bold text-[#72787f] dark:text-gray-400 mb-1 ml-1">Assign To (Manual Name)</label>
+                  <input type="text" placeholder="e.g. Deepak, Supriya, Leo..." value={ruleAssignee} onChange={(e) => setRuleAssignee(e.target.value)} className="w-full bg-[#f3f4f5] dark:bg-black border border-[#c2c7cf] dark:border-white/20 rounded-xl px-4 py-3 outline-none focus:border-[#326085] dark:text-white" required />
                 </div>
                 <div className="flex gap-2 pt-2">
                   <button type="submit" className="flex-1 bg-[#4a6549] hover:bg-[#334d33] text-white py-3 rounded-xl font-bold active:scale-95 transition-all">Save Rule</button>
-                  <button type="button" onClick={() => setShowRuleForm(false)} className="bg-[#e1e3e4] text-[#42474e] px-4 rounded-xl font-bold hover:bg-[#c2c7cf] active:scale-95 transition-all">Cancel</button>
+                  <button type="button" onClick={() => setShowRuleForm(false)} className="bg-[#e1e3e4] dark:bg-[#333] text-[#42474e] dark:text-white px-4 rounded-xl font-bold hover:bg-[#c2c7cf] active:scale-95 transition-all">Cancel</button>
                 </div>
               </form>
             )}
 
             <div className="space-y-4">
               {rules.length === 0 ? (
-                <p className="text-center text-[#72787f] py-10 border-2 border-dashed border-[#c2c7cf] rounded-2xl">No rules scheduled yet.</p>
+                <p className="text-center text-[#72787f] dark:text-gray-500 py-10 border-2 border-dashed border-[#c2c7cf] dark:border-gray-700 rounded-2xl">No rules scheduled yet.</p>
               ) : (
                 rules.map((rule) => {
                   const isMed = rule.category === "Medicine";
                   const isPray = rule.category === "Prayer";
                   return (
-                    <div key={rule.id} className={`bg-white rounded-xl p-4 shadow-sm flex items-center border-l-4 ${isMed ? 'border-[#326085]' : isPray ? 'border-[#7f5221]' : 'border-[#4a6549]'}`}>
+                    <div key={rule.id} className={`bg-white dark:bg-[#1a1a1a] rounded-xl p-4 shadow-sm flex items-center border-l-4 transition-colors ${isMed ? 'border-[#326085]' : isPray ? 'border-[#7f5221]' : 'border-[#4a6549]'}`}>
                       <div className="flex-grow">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold uppercase tracking-wider">{rule.category}</span>
-                          <span className="text-sm font-bold bg-[#f3f4f5] text-[#191c1d] px-2 py-0.5 rounded-md">⏰ {rule.time}</span>
+                          <span className="text-xs font-bold uppercase tracking-wider dark:text-gray-300">{rule.category}</span>
+                          <span className="text-sm font-bold bg-[#f3f4f5] dark:bg-black text-[#191c1d] dark:text-white px-2 py-0.5 rounded-md">⏰ {rule.time}</span>
                         </div>
-                        <h3 className="font-bold mt-1 text-[#191c1d]">{rule.title}</h3>
-                        <p className="text-xs text-[#4c799f] font-bold mt-1">Assigned to: {rule.assignee}</p>
+                        <h3 className="font-bold mt-1 text-[#191c1d] dark:text-white">{rule.title}</h3>
+                        <p className="text-xs text-[#4c799f] dark:text-[#9fcbf5] font-bold mt-1">Assigned to: {rule.assignee}</p>
                       </div>
-                      <button onClick={() => deleteRule(rule.id, rule.title)} className="ml-4 text-[#ba1a1a] hover:bg-[#ffdad6] p-2 rounded-full transition-colors">
+                      <button onClick={() => deleteRule(rule.id, rule.title)} className="ml-4 text-[#ba1a1a] hover:bg-[#ffdad6] dark:hover:bg-[#93000a]/30 p-2 rounded-full transition-colors">
                         <span className="material-symbols-outlined text-[20px]">delete</span>
                       </button>
                     </div>
@@ -457,42 +445,40 @@ export default function Home() {
           </div>
         )}
 
-        {/* ================= 3. CAMERA TAB (MULTI-CHANNEL FRONT/BACK) ================= */}
+        {/* ================= 3. CAMERA TAB ================= */}
         {activeTab === "camera" && (
           <div className="space-y-6 animate-fade-in">
              <section className="space-y-1">
-                <h2 className="text-[26px] font-extrabold text-[#326085]">Live CCTV Security</h2>
-                <p className="text-[#42474e] text-sm">Turn any phone into a surveillance camera.</p>
+                <h2 className="text-[26px] font-extrabold text-[#326085] dark:text-[#dfd8c6]">Live CCTV Security</h2>
+                <p className="text-[#42474e] dark:text-gray-400 text-sm">Turn any phone into a surveillance camera.</p>
              </section>
 
              {cctvMode === "idle" && (
                <div className="space-y-6">
-                  {/* Broadcaster Section */}
-                  <div className="bg-[#e7e8e9] p-5 rounded-3xl border border-[#c2c7cf] shadow-sm">
-                     <h3 className="font-bold text-[#4a6549] mb-3">1. Setup Camera (Streamer)</h3>
-                     <div className="flex items-center gap-2 mb-4 bg-white p-2 rounded-xl">
-                        <button onClick={() => setCameraFacing("environment")} className={`flex-1 py-2 font-bold rounded-lg transition-all ${cameraFacing === 'environment' ? 'bg-[#4a6549] text-white' : 'text-[#72787f] hover:bg-[#f3f4f5]'}`}>Back Camera</button>
-                        <button onClick={() => setCameraFacing("user")} className={`flex-1 py-2 font-bold rounded-lg transition-all ${cameraFacing === 'user' ? 'bg-[#4a6549] text-white' : 'text-[#72787f] hover:bg-[#f3f4f5]'}`}>Front Camera</button>
+                  <div className="bg-[#e7e8e9] dark:bg-[#1a1a1a] p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 shadow-sm transition-colors">
+                     <h3 className="font-bold text-[#4a6549] dark:text-[#ccebc7] mb-3">1. Setup Camera (Streamer)</h3>
+                     <div className="flex items-center gap-2 mb-4 bg-white dark:bg-black p-2 rounded-xl">
+                        <button onClick={() => setCameraFacing("environment")} className={`flex-1 py-2 font-bold rounded-lg transition-all ${cameraFacing === 'environment' ? 'bg-[#4a6549] text-white' : 'text-[#72787f] hover:bg-[#f3f4f5] dark:hover:bg-[#333]'}`}>Back Camera</button>
+                        <button onClick={() => setCameraFacing("user")} className={`flex-1 py-2 font-bold rounded-lg transition-all ${cameraFacing === 'user' ? 'bg-[#4a6549] text-white' : 'text-[#72787f] hover:bg-[#f3f4f5] dark:hover:bg-[#333]'}`}>Front Camera</button>
                      </div>
                      <button onClick={startCctvCameraMode} className="w-full bg-[#4a6549] hover:bg-[#334d33] text-white p-4 rounded-xl flex items-center justify-center gap-2 font-bold shadow-md active:scale-95 transition-all">
                         <span className="material-symbols-outlined">videocam</span> GO LIVE AS CAMERA
                      </button>
                   </div>
 
-                  {/* Viewer Section */}
-                  <div className="bg-white p-5 rounded-3xl border border-[#c2c7cf] shadow-sm">
-                     <h3 className="font-bold text-[#326085] mb-3 flex items-center gap-2"><span className="material-symbols-outlined">live_tv</span> Available Cameras</h3>
+                  <div className="bg-white dark:bg-[#1a1a1a] p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 shadow-sm transition-colors">
+                     <h3 className="font-bold text-[#326085] dark:text-[#9fcbf5] mb-3 flex items-center gap-2"><span className="material-symbols-outlined">live_tv</span> Available Cameras</h3>
                      {activeCameras.length === 0 ? (
-                        <p className="text-center text-[#72787f] py-4 border-2 border-dashed rounded-xl">No active cameras found. Start a stream from another phone.</p>
+                        <p className="text-center text-[#72787f] dark:text-gray-500 py-4 border-2 border-dashed dark:border-gray-700 rounded-xl">No active cameras found.</p>
                      ) : (
                         <div className="grid gap-3">
                            {activeCameras.map(cam => (
-                              <button key={cam.id} onClick={() => startCctvViewerMode(cam.id, cam.streamerName)} className="bg-[#f3f4f5] hover:bg-[#cde5ff] p-4 rounded-xl border border-[#c2c7cf] flex items-center justify-between transition-colors text-left">
+                              <button key={cam.id} onClick={() => startCctvViewerMode(cam.id, cam.streamerName)} className="bg-[#f3f4f5] dark:bg-black hover:bg-[#cde5ff] dark:hover:bg-[#333] p-4 rounded-xl border border-[#c2c7cf] dark:border-white/20 flex items-center justify-between transition-colors text-left">
                                  <div>
-                                    <h4 className="font-bold text-[#191c1d]">{cam.streamerName}'s Camera</h4>
-                                    <p className="text-xs text-[#4a6549] font-bold flex items-center gap-1 mt-1"><span className="material-symbols-outlined text-[14px]">fiber_manual_record</span> Live Now</p>
+                                    <h4 className="font-bold text-[#191c1d] dark:text-white">{cam.streamerName}'s Camera</h4>
+                                    <p className="text-xs text-[#4a6549] dark:text-[#ccebc7] font-bold flex items-center gap-1 mt-1"><span className="material-symbols-outlined text-[14px]">fiber_manual_record</span> Live Now</p>
                                  </div>
-                                 <span className="material-symbols-outlined text-[#326085]">play_circle</span>
+                                 <span className="material-symbols-outlined text-[#326085] dark:text-[#9fcbf5]">play_circle</span>
                               </button>
                            ))}
                         </div>
@@ -501,7 +487,6 @@ export default function Home() {
                </div>
              )}
 
-             {/* STREAMING UI */}
              {cctvMode === "camera" && (
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#4a6549]">
                   <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-[60vh] object-cover" />
@@ -512,7 +497,6 @@ export default function Home() {
                </div>
              )}
 
-             {/* VIEWING UI */}
              {cctvMode === "viewer" && (
                <div className="bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-[#326085]">
                   <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-[60vh] object-cover" />
@@ -528,21 +512,38 @@ export default function Home() {
         {/* ================= 4. SETUP TAB ================= */}
         {activeTab === "setup" && (
           <div className="space-y-6 animate-fade-in">
-            <section className="bg-white p-5 rounded-3xl border border-[#c2c7cf] space-y-4 shadow-sm">
-                <h3 className="text-lg font-bold text-[#326085]">Network & Geofence</h3>
+            <section className="bg-white dark:bg-[#1a1a1a] p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm transition-colors">
+                <h3 className="text-lg font-bold text-[#326085] dark:text-[#9fcbf5]">Network & Geofence</h3>
                 <button onClick={setHomeRouter} className="w-full h-[52px] bg-[#326085] hover:bg-[#184a6e] text-white font-bold rounded-xl active:scale-95 transition-all">Register Home Wi-Fi IP</button>
                 <button onClick={setHomeBase} className="w-full h-[52px] bg-[#7f5221] hover:bg-[#663d0e] text-white font-bold rounded-xl active:scale-95 transition-all">Set GPS Home Area</button>
             </section>
             
-            <section className="bg-[#e7e8e9] p-5 rounded-3xl border border-[#c2c7cf] space-y-4 shadow-sm">
+            {/* ✨ NAYA: UI THEME & GOD MODE COMPONENTS ✨ */}
+            <section className="bg-white dark:bg-[#1a1a1a] p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm relative overflow-hidden transition-colors">
+                <h3 className="text-lg font-bold text-[#326085] dark:text-[#9fcbf5]">App Preferences</h3>
+                
+                <div className="flex flex-col gap-4 items-center justify-center py-4">
+                    <p className="text-sm font-bold text-gray-500 dark:text-gray-400">Change App Theme</p>
+                    <ThemeToggle variant="icon" defaultTheme="light" duration={600} />
+                </div>
+
+                <div className="flex flex-col gap-4 items-center justify-center pt-6 border-t border-[#c2c7cf] dark:border-gray-700">
+                    <p className="text-sm font-bold text-gray-500 dark:text-gray-400">Special Action</p>
+                    <RainbowButton onClick={() => alert("God Mode Activated! Welcome to the Matrix, Deepak.")}>
+                       Activate God Mode
+                    </RainbowButton>
+                </div>
+            </section>
+
+            <section className="bg-[#e7e8e9] dark:bg-black p-5 rounded-3xl border border-[#c2c7cf] dark:border-white/10 space-y-4 shadow-sm transition-colors">
                 <div className="flex items-center gap-3 mb-2">
                     <div className="w-10 h-10 bg-[#4a6549] rounded-full flex items-center justify-center text-white"><span className="material-symbols-outlined">person_add</span></div>
-                    <div><h2 className="text-[18px] font-bold text-[#4a6549]">Add New Member</h2><p className="text-xs text-[#42474e]">Invite via link</p></div>
+                    <div><h2 className="text-[18px] font-bold text-[#4a6549] dark:text-[#ccebc7]">Add New Member</h2><p className="text-xs text-[#42474e] dark:text-gray-400">Invite via link</p></div>
                 </div>
                 <button onClick={copyInviteLink} className="w-full h-[52px] bg-[#4a6549] hover:bg-[#334d33] text-white font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all">
                     <span className="material-symbols-outlined">content_copy</span> Copy Magic Link
                 </button>
-                <p className="text-xs text-center text-[#72787f] font-medium">No MAC Address needed. Send link on WhatsApp to instantly add family members!</p>
+                <p className="text-xs text-center text-[#72787f] dark:text-gray-500 font-medium">No MAC Address needed. Send link on WhatsApp to instantly add family members!</p>
             </section>
           </div>
         )}
@@ -550,26 +551,25 @@ export default function Home() {
         {/* ================= 5. LOGS TAB ================= */}
         {activeTab === "logs" && (
           <div className="space-y-4 animate-fade-in">
-             <h2 className="text-[28px] font-extrabold text-[#191c1d]">Activity Logs</h2>
+             <h2 className="text-[28px] font-extrabold text-[#191c1d] dark:text-[#dfd8c6]">Activity Logs</h2>
              {activityLogs.map((log) => (
-                <div key={log.id} className={`bg-white p-4 rounded-xl border text-sm shadow-sm ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/20' : 'border-[#e1e3e4]'}`}>
-                   <div className="flex justify-between font-bold text-[#191c1d]"><span>{log.userName}</span><span className="text-xs text-[#72787f]">{log.time}</span></div>
-                   <p className={`mt-1 font-medium ${log.isEmergency ? 'text-[#ba1a1a]' : 'text-[#42474e]'}`}>{log.action}</p>
+                <div key={log.id} className={`bg-white dark:bg-[#1a1a1a] p-4 rounded-xl border text-sm shadow-sm transition-colors ${log.isEmergency ? 'border-[#ba1a1a] bg-[#ffdad6]/20 dark:bg-[#93000a]/20' : 'border-[#e1e3e4] dark:border-white/10'}`}>
+                   <div className="flex justify-between font-bold text-[#191c1d] dark:text-white"><span>{log.userName}</span><span className="text-xs text-[#72787f] dark:text-gray-400">{log.time}</span></div>
+                   <p className={`mt-1 font-medium ${log.isEmergency ? 'text-[#ba1a1a]' : 'text-[#42474e] dark:text-gray-300'}`}>{log.action}</p>
                 </div>
              ))}
-             {activityLogs.length === 0 && <p className="text-center text-[#72787f] mt-10">No recent activity.</p>}
+             {activityLogs.length === 0 && <p className="text-center text-[#72787f] dark:text-gray-500 mt-10">No recent activity.</p>}
           </div>
         )}
 
       </main>
 
-      {/* --- BOTTOM NAVIGATION BAR --- */}
-      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-3 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.05)] border-t border-[#e1e3e4]">
-        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center transition-colors ${activeTab === 'home' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[10px] font-bold mt-1">Home</span></button>
-        <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center transition-colors ${activeTab === 'rules' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span><span className="text-[10px] font-bold mt-1">Rules</span></button>
-        <button onClick={() => setActiveTab('camera')} className={`flex flex-col items-center transition-colors ${activeTab === 'camera' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'camera' ? "'FILL' 1" : "'FILL' 0" }}>videocam</span><span className="text-[10px] font-bold mt-1">CCTV</span></button>
-        <button onClick={() => setActiveTab('setup')} className={`flex flex-col items-center transition-colors ${activeTab === 'setup' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'setup' ? "'FILL' 1" : "'FILL' 0" }}>settings</span><span className="text-[10px] font-bold mt-1">Setup</span></button>
-        <button onClick={() => setActiveTab('logs')} className={`flex flex-col items-center transition-colors ${activeTab === 'logs' ? 'text-[#326085]' : 'text-[#72787f] hover:text-[#42474e]'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'logs' ? "'FILL' 1" : "'FILL' 0" }}>history</span><span className="text-[10px] font-bold mt-1">Logs</span></button>
+      <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-3 bg-white dark:bg-[#1a1a1a] shadow-[0_-4px_12px_rgba(0,0,0,0.05)] border-t border-[#e1e3e4] dark:border-white/10 transition-colors duration-300">
+        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center transition-colors ${activeTab === 'home' ? 'text-[#326085] dark:text-[#9fcbf5]' : 'text-[#72787f] hover:text-[#42474e] dark:hover:text-white'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'home' ? "'FILL' 1" : "'FILL' 0" }}>home</span><span className="text-[10px] font-bold mt-1">Home</span></button>
+        <button onClick={() => setActiveTab('rules')} className={`flex flex-col items-center transition-colors ${activeTab === 'rules' ? 'text-[#326085] dark:text-[#9fcbf5]' : 'text-[#72787f] hover:text-[#42474e] dark:hover:text-white'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'rules' ? "'FILL' 1" : "'FILL' 0" }}>event_note</span><span className="text-[10px] font-bold mt-1">Rules</span></button>
+        <button onClick={() => setActiveTab('camera')} className={`flex flex-col items-center transition-colors ${activeTab === 'camera' ? 'text-[#326085] dark:text-[#9fcbf5]' : 'text-[#72787f] hover:text-[#42474e] dark:hover:text-white'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'camera' ? "'FILL' 1" : "'FILL' 0" }}>videocam</span><span className="text-[10px] font-bold mt-1">CCTV</span></button>
+        <button onClick={() => setActiveTab('setup')} className={`flex flex-col items-center transition-colors ${activeTab === 'setup' ? 'text-[#326085] dark:text-[#9fcbf5]' : 'text-[#72787f] hover:text-[#42474e] dark:hover:text-white'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'setup' ? "'FILL' 1" : "'FILL' 0" }}>settings</span><span className="text-[10px] font-bold mt-1">Setup</span></button>
+        <button onClick={() => setActiveTab('logs')} className={`flex flex-col items-center transition-colors ${activeTab === 'logs' ? 'text-[#326085] dark:text-[#9fcbf5]' : 'text-[#72787f] hover:text-[#42474e] dark:hover:text-white'}`}><span className="material-symbols-outlined" style={{ fontVariationSettings: activeTab === 'logs' ? "'FILL' 1" : "'FILL' 0" }}>history</span><span className="text-[10px] font-bold mt-1">Logs</span></button>
       </nav>
     </div>
   );
